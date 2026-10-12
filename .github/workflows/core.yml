@@ -1,0 +1,62 @@
+name: sfc_core CI
+
+on:
+  push:
+    paths:
+      - 'Plugins/StallFreeCapture/ThirdParty/sfc_core/**'
+      - '.github/**'
+  pull_request:
+    paths:
+      - 'Plugins/StallFreeCapture/ThirdParty/sfc_core/**'
+      - '.github/**'
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.os }} - ${{ matrix.compiler }}
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            compiler: gcc
+            cc: gcc
+            cxx: g++
+          - os: ubuntu-latest
+            compiler: clang
+            cc: clang
+            cxx: clang++
+          - os: windows-latest
+            compiler: msvc
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup compiler (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          echo "CC=${{ matrix.cc }}" >> $GITHUB_ENV
+          echo "CXX=${{ matrix.cxx }}" >> $GITHUB_ENV
+      
+      - name: Cache GoogleTest
+        uses: actions/cache@v4
+        with:
+          path: |
+            Plugins/StallFreeCapture/ThirdParty/sfc_core/build/*/_deps
+          key: ${{ runner.os }}-${{ matrix.compiler }}-${{ matrix.cc || 'msvc' }}-gtest-${{ hashFiles('Plugins/StallFreeCapture/ThirdParty/sfc_core/CMakeLists.txt', 'Plugins/StallFreeCapture/ThirdParty/sfc_core/CMakePresets.json') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.compiler }}-${{ matrix.cc || 'msvc' }}-gtest-
+      
+      - name: Configure CMake
+        working-directory: Plugins/StallFreeCapture/ThirdParty/sfc_core
+        run: cmake --preset debug
+      
+      - name: Build
+        working-directory: Plugins/StallFreeCapture/ThirdParty/sfc_core
+        run: cmake --build --preset debug
+      
+      - name: Run tests
+        working-directory: Plugins/StallFreeCapture/ThirdParty/sfc_core
+        run: ctest --preset debug --output-on-failure
