@@ -6,18 +6,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # sfc_core static library
-add_library(sfc_core INTERFACE)
-target_include_directories(sfc_core INTERFACE
+add_library(sfc_core STATIC
+    src/version.cpp
+)
+
+target_include_directories(sfc_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
-target_compile_features(sfc_core INTERFACE cxx_std_20)
 
-# Compiler warnings as errors
-if(MSVC)
-    target_compile_options(sfc_core INTERFACE /W4 /WX)
-else()
-    target_compile_options(sfc_core INTERFACE -Wall -Wextra -Werror)
-endif()
+target_compile_features(sfc_core PUBLIC cxx_std_20)
 
 # Enable testing
 enable_testing()

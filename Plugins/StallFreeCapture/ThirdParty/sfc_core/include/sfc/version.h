@@ -4,8 +4,6 @@
 
 namespace sfc {
 
-inline std::string Version() {
-    return "0.1.0";
-}
+std::string Version();
 
 }  // namespace sfc
