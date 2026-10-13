@@ -5,7 +5,7 @@
 	"Description": "",
 	"Modules": [
 		{
-			"Name": "CameraSensor",
+			"Name": "CaptureSandbox",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
 		}
@@ -17,6 +17,10 @@
 			"TargetAllowList": [
 				"Editor"
 			]
+		},
+		{
+			"Name": "StallFreeCapture",
+			"Enabled": true
 		}
 	]
 }

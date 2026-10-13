@@ -3,13 +3,13 @@
 using UnrealBuildTool;
 using System.Collections.Generic;
 
-public class CameraSensorEditorTarget : TargetRules
+public class CaptureSandboxTarget : TargetRules
 {
-	public CameraSensorEditorTarget(TargetInfo Target) : base(Target)
+	public CaptureSandboxTarget(TargetInfo Target) : base(Target)
 	{
-		Type = TargetType.Editor;
+		Type = TargetType.Game;
 		DefaultBuildSettings = BuildSettingsVersion.V7;
 		IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_8;
-		ExtraModuleNames.Add("CameraSensor");
+		ExtraModuleNames.Add("CaptureSandbox");
 	}
 }

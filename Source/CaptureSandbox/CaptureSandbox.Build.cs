@@ -2,9 +2,9 @@
 
 using UnrealBuildTool;
 
-public class CameraSensor : ModuleRules
+public class CaptureSandbox : ModuleRules
 {
-	public CameraSensor(ReadOnlyTargetRules Target) : base(Target)
+	public CaptureSandbox(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
