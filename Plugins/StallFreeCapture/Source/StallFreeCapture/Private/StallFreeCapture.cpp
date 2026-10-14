@@ -2,6 +2,7 @@
 
 #include "StallFreeCapture.h"
 #include "Interfaces/IPluginManager.h"
+#include "sfc/version.h"
 
 #define LOCTEXT_NAMESPACE "FStallFreeCaptureModule"
 
@@ -17,6 +18,7 @@ void FStallFreeCaptureModule::StartupModule()
 	}
 
 	UE_LOG(LogStallFreeCapture, Log, TEXT("StallFreeCapture loaded %s"), *Version);
+	UE_LOG(LogStallFreeCapture, Log, TEXT("sfc_core %s"), UTF8_TO_TCHAR(sfc::Version().c_str()));
 }
 
 void FStallFreeCaptureModule::ShutdownModule()
