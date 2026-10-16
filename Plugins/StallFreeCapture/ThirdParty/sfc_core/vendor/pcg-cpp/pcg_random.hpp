@@ -75,6 +75,13 @@
 #ifndef PCG_RAND_HPP_INCLUDED
 #define PCG_RAND_HPP_INCLUDED 1
 
+// Define PCG_ALWAYS_INLINE for cross-platform compatibility
+#if defined(_MSC_VER)
+    #define PCG_ALWAYS_INLINE __forceinline
+#else
+    #define PCG_ALWAYS_INLINE __attribute__((always_inline)) inline
+#endif
+
 #include <algorithm>
 #include <cinttypes>
 #include <cstddef>
@@ -1205,7 +1212,7 @@ public:
         return baseclass::period_pow2() + table_size*extvalclass::period_pow2();
     }
 
-    __attribute__((always_inline)) result_type operator()()
+    PCG_ALWAYS_INLINE result_type operator()()
     {
         result_type rhs = get_extended_value();
         result_type lhs = this->baseclass::operator()();
