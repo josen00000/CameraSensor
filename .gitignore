@@ -80,3 +80,4 @@ build/
 
 # Test reports (actual reports go in docs/reports/)
 /test-report.txt
+docs/reports/unreal-automation-*/

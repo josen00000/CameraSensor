@@ -47,9 +47,10 @@ param(
 # Capture errors but don't throw immediately so we can write reports
 $ErrorActionPreference = "Continue"
 
-# Get ISO-8601 timestamp with zone
-$Timestamp = Get-Date -Format o
-$DateStamp = Get-Date -Format "yyyy-MM-dd"
+    # Get ISO-8601 timestamp with zone
+    $Timestamp = Get-Date -Format o
+    $DateStamp = Get-Date -Format "yyyy-MM-dd"
+    $TimeStamp = Get-Date -Format "HHmmss"
 
 # Determine project root (one level up from tools/)
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
@@ -93,7 +94,13 @@ Please install Unreal Engine 5.8 or set UNREAL_ENGINE environment variable.
 
     # Setup paths
     $UProjectPath = Join-Path $ProjectRoot "CaptureSandbox.uproject"
-    $ReportExportPath = Join-Path $ProjectRoot "docs" "reports" "unreal-automation-$DateStamp"
+    $ReportExportPath = Join-Path $ProjectRoot "docs" "reports" "unreal-automation-$DateStamp-$TimeStamp"
+    
+    # Delete any existing report export path to prevent reading stale index.json
+    if (Test-Path $ReportExportPath) {
+        Write-Host "Removing existing report path: $ReportExportPath" -ForegroundColor Yellow
+        Remove-Item -Recurse -Force $ReportExportPath
+    }
     
     if (-not (Test-Path $UProjectPath)) {
         Write-Host "ERROR: Project file not found: $UProjectPath" -ForegroundColor Red
@@ -145,19 +152,29 @@ Error: CaptureSandbox.uproject not found at: $UProjectPath
         try {
             $IndexJson = Get-Content $IndexJsonPath -Raw | ConvertFrom-Json
             $Succeeded = $IndexJson.succeeded
+            $SucceededWithWarnings = $IndexJson.succeededWithWarnings
             $Failed = $IndexJson.failed
+            $NotRun = $IndexJson.notRun
             
-            Write-Host "Test results from index.json: succeeded=$Succeeded, failed=$Failed" -ForegroundColor Gray
+            # Count tests that passed (with or without warnings)
+            $Passed = $Succeeded + $SucceededWithWarnings
             
-            if ($Succeeded -ge 1 -and $Failed -eq 0) {
+            Write-Host "Test results from index.json: succeeded=$Succeeded, succeededWithWarnings=$SucceededWithWarnings, failed=$Failed, notRun=$NotRun" -ForegroundColor Gray
+            
+            $TestDetails = "Test counts: succeeded=$Succeeded, succeededWithWarnings=$SucceededWithWarnings, failed=$Failed, notRun=$NotRun (passed=$Passed)"
+            
+            if ($Passed -ge 1 -and $Failed -eq 0 -and $NotRun -eq 0) {
                 $TestPassed = $true
-                $TestDetails = "Tests succeeded: $Succeeded, failed: $Failed"
             } else {
                 $TestPassed = $false
-                if ($Succeeded -lt 1) {
-                    $TestDetails = "FAILED: No tests succeeded (succeeded=$Succeeded, failed=$Failed)"
-                } else {
-                    $TestDetails = "FAILED: Some tests failed (succeeded=$Succeeded, failed=$Failed)"
+                if ($Passed -lt 1) {
+                    $TestDetails += "`nFAILED: No tests passed (passed=$Passed)"
+                }
+                if ($Failed -gt 0) {
+                    $TestDetails += "`nFAILED: Some tests failed (failed=$Failed)"
+                }
+                if ($NotRun -gt 0) {
+                    $TestDetails += "`nFAILED: Some tests did not run (notRun=$NotRun)"
                 }
             }
         } catch {

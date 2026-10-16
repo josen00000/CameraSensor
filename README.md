@@ -12,6 +12,6 @@ The system will be measured against a naive synchronous baseline, tracking per-s
 
 ## Components
 
-- **StallFreeCapture plugin**: Core capture system, lock-free queue, and integration with Unreal's rendering pipeline
+- **StallFreeCapture plugin**: Will provide the core capture system, lock-free queue, and integration with Unreal's rendering pipeline
 - **CaptureSandbox**: Host Unreal project for testing and benchmarking the capture system
-- **sfc_core**: Cross-platform C++20 library providing the lock-free queue, deterministic random number generation, fixed-step clock, and latency measurement utilities
+- **sfc_core**: Cross-platform C++20 library that will provide the lock-free queue, deterministic random number generation, fixed-step clock, and latency measurement utilities
