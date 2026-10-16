@@ -7,9 +7,12 @@
 
 namespace
 {
-	float UnitInterval(uint32_t Value)
+	// Hash buffer is built with explicit little-endian field writes (see Append* below).
+	static_assert(PLATFORM_LITTLE_ENDIAN, "FSfcPropSpawn hash layout assumes little-endian host");
+
+	float UnitIntervalFromDraw(uint32 Draw)
 	{
-		return static_cast<float>(Value) / static_cast<float>(UINT32_MAX);
+		return static_cast<float>(Draw >> 8) * 0x1p-24f;
 	}
 
 	float Lerp(float Min, float Max, float T)
@@ -17,36 +20,22 @@ namespace
 		return Min + (Max - Min) * T;
 	}
 
-#pragma pack(push, 1)
-	struct FPackedPropState
+	void AppendLE8(TArray<uint8>& Buffer, uint8 Value)
 	{
-		uint16 Id;
-		uint8 PropClass;
-		uint8 Padding;
-		float Position[3];
-		float Rotation[3];
-		float Scale[3];
-	};
-#pragma pack(pop)
+		Buffer.Add(Value);
+	}
 
-	static_assert(sizeof(FPackedPropState) == 40, "Packed prop layout must be stable for hashing");
-
-	FPackedPropState Pack(const FSfcPropState& State)
+	void AppendLE32(TArray<uint8>& Buffer, uint32 Value)
 	{
-		FPackedPropState Packed{};
-		Packed.Id = State.Id;
-		Packed.PropClass = static_cast<uint8>(State.PropClass);
-		Packed.Padding = 0;
-		Packed.Position[0] = State.Position.X;
-		Packed.Position[1] = State.Position.Y;
-		Packed.Position[2] = State.Position.Z;
-		Packed.Rotation[0] = State.Rotation.Pitch;
-		Packed.Rotation[1] = State.Rotation.Yaw;
-		Packed.Rotation[2] = State.Rotation.Roll;
-		Packed.Scale[0] = State.Scale.X;
-		Packed.Scale[1] = State.Scale.Y;
-		Packed.Scale[2] = State.Scale.Z;
-		return Packed;
+		Buffer.Add(static_cast<uint8>(Value & 0xFFu));
+		Buffer.Add(static_cast<uint8>((Value >> 8) & 0xFFu));
+		Buffer.Add(static_cast<uint8>((Value >> 16) & 0xFFu));
+		Buffer.Add(static_cast<uint8>((Value >> 24) & 0xFFu));
+	}
+
+	void AppendLE32(TArray<uint8>& Buffer, int32 Value)
+	{
+		AppendLE32(Buffer, static_cast<uint32>(Value));
 	}
 }
 
@@ -81,24 +70,32 @@ void FSfcPropSpawn::BuildStates(
 	for (int32 Index = 0; Index < SafeCount; ++Index)
 	{
 		FSfcPropState State;
-		State.Id = static_cast<uint16>(Index + 1);
+		State.Id = Index + 1;
+		State.RawDraws.Reset();
 
-		const uint32 ClassDraw = Rng.Next();
+		const auto RecordDraw = [&Rng, &State]() -> uint32
+		{
+			const uint32 Draw = Rng.Next();
+			State.RawDraws.Add(Draw);
+			return Draw;
+		};
+
+		const uint32 ClassDraw = RecordDraw();
 		State.PropClass = static_cast<ESfcPropClass>(ClassDraw % 3);
 
-		const float PosX = Lerp(-ArenaHalfExtents.X, ArenaHalfExtents.X, UnitInterval(Rng.Next()));
-		const float PosY = Lerp(-ArenaHalfExtents.Y, ArenaHalfExtents.Y, UnitInterval(Rng.Next()));
-		const float PosZ = Lerp(-ArenaHalfExtents.Z, ArenaHalfExtents.Z, UnitInterval(Rng.Next()));
+		const float PosX = Lerp(-ArenaHalfExtents.X, ArenaHalfExtents.X, UnitIntervalFromDraw(RecordDraw()));
+		const float PosY = Lerp(-ArenaHalfExtents.Y, ArenaHalfExtents.Y, UnitIntervalFromDraw(RecordDraw()));
+		const float PosZ = Lerp(-ArenaHalfExtents.Z, ArenaHalfExtents.Z, UnitIntervalFromDraw(RecordDraw()));
 		State.Position = FVector(PosX, PosY, PosZ);
 
-		const float Pitch = Lerp(0.0f, 360.0f, UnitInterval(Rng.Next()));
-		const float Yaw = Lerp(0.0f, 360.0f, UnitInterval(Rng.Next()));
-		const float Roll = Lerp(0.0f, 360.0f, UnitInterval(Rng.Next()));
+		const float Pitch = Lerp(0.0f, 360.0f, UnitIntervalFromDraw(RecordDraw()));
+		const float Yaw = Lerp(0.0f, 360.0f, UnitIntervalFromDraw(RecordDraw()));
+		const float Roll = Lerp(0.0f, 360.0f, UnitIntervalFromDraw(RecordDraw()));
 		State.Rotation = FRotator(Pitch, Yaw, Roll);
 
-		const float ScaleX = Lerp(0.5f, 2.0f, UnitInterval(Rng.Next()));
-		const float ScaleY = Lerp(0.5f, 2.0f, UnitInterval(Rng.Next()));
-		const float ScaleZ = Lerp(0.5f, 2.0f, UnitInterval(Rng.Next()));
+		const float ScaleX = Lerp(0.5f, 2.0f, UnitIntervalFromDraw(RecordDraw()));
+		const float ScaleY = Lerp(0.5f, 2.0f, UnitIntervalFromDraw(RecordDraw()));
+		const float ScaleZ = Lerp(0.5f, 2.0f, UnitIntervalFromDraw(RecordDraw()));
 		State.Scale = FVector(ScaleX, ScaleY, ScaleZ);
 
 		OutStates.Add(State);
@@ -108,12 +105,15 @@ void FSfcPropSpawn::BuildStates(
 uint64 FSfcPropSpawn::HashInitialState(const TArray<FSfcPropState>& States)
 {
 	TArray<uint8> Buffer;
-	Buffer.Reserve(States.Num() * sizeof(FPackedPropState));
+	Buffer.Reserve(States.Num() * (sizeof(int32) + sizeof(uint8) + 10 * sizeof(uint32)));
 	for (const FSfcPropState& State : States)
 	{
-		const FPackedPropState Packed = Pack(State);
-		const uint8* Bytes = reinterpret_cast<const uint8*>(&Packed);
-		Buffer.Append(Bytes, sizeof(FPackedPropState));
+		AppendLE32(Buffer, State.Id);
+		AppendLE8(Buffer, static_cast<uint8>(State.PropClass));
+		for (const uint32 Draw : State.RawDraws)
+		{
+			AppendLE32(Buffer, Draw);
+		}
 	}
 	if (Buffer.IsEmpty())
 	{

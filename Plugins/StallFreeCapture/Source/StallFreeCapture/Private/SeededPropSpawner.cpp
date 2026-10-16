@@ -99,6 +99,7 @@ void ASeededPropSpawner::SpawnPropsInWorld()
 		UStaticMeshComponent* MeshComponent = PropActor->GetStaticMeshComponent();
 		if (MeshComponent)
 		{
+			MeshComponent->SetMobility(EComponentMobility::Movable);
 			MeshComponent->SetStaticMesh(Mesh);
 			MeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 			MeshComponent->SetSimulatePhysics(false);

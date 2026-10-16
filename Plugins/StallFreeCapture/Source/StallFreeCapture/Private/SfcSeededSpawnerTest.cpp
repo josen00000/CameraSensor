@@ -5,6 +5,13 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
+namespace
+{
+	// TODO(josen): Replace with the initial_state_hash from your first local editor run (seed 7, N=200).
+	static constexpr uint64 kSeed7GoldenHashPlaceholder = 0ULL;
+	static constexpr bool kEnableSeed7GoldenHashTest = false;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FSfcSeededSpawnerDeterminismTest,
 	"SFC.Scene.Spawner.InitialHash",
@@ -31,10 +38,11 @@ bool FSfcSeededSpawnerDeterminismTest::RunTest(const FString& Parameters)
 
 	for (int32 Index = 0; Index < Seed7RunA.Num(); ++Index)
 	{
-		const uint16 ExpectedId = static_cast<uint16>(Index + 1);
+		const int32 ExpectedId = Index + 1;
 		TestEqual(FString::Printf(TEXT("Prop ID at index %d"), Index), Seed7RunA[Index].Id, ExpectedId);
 		const uint8 ClassValue = static_cast<uint8>(Seed7RunA[Index].PropClass);
 		TestTrue(TEXT("Prop class is one of three"), ClassValue <= 2);
+		TestEqual(TEXT("Ten raw draws per prop"), Seed7RunA[Index].RawDraws.Num(), 10);
 	}
 
 	bool bClamped = false;
@@ -47,9 +55,32 @@ bool FSfcSeededSpawnerDeterminismTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("BuildStates respects clamp without ID wrap"), ClampedRun.Num(), FSfcPropSpawn::MaxPropCount);
 	if (ClampedRun.Num() > 0)
 	{
-		TestEqual(TEXT("Last prop ID is 65535 when clamped"), ClampedRun.Last().Id, static_cast<uint16>(65535));
+		TestEqual(TEXT("Last prop ID is 65535 when clamped"), ClampedRun.Last().Id, 65535);
 	}
 
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FSfcSeededSpawnerGoldenHashTest,
+	"SFC.Scene.Spawner.GoldenHash",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::CommandletContext | EAutomationTestFlags::ProductFilter)
+
+bool FSfcSeededSpawnerGoldenHashTest::RunTest(const FString& Parameters)
+{
+	if (!kEnableSeed7GoldenHashTest)
+	{
+		AddInfo(
+			TEXT("Golden hash test disabled: set kSeed7GoldenHashPlaceholder from Josen's first run and enable ")
+			TEXT("kEnableSeed7GoldenHashTest (see TODO in SfcSeededSpawnerTest.cpp)."));
+		return true;
+	}
+
+	const FVector ArenaHalfExtents(1000.0f, 1000.0f, 200.0f);
+	TArray<FSfcPropState> States;
+	FSfcPropSpawn::BuildStates(7, 200, ArenaHalfExtents, States);
+	const uint64 Hash = FSfcPropSpawn::HashInitialState(States);
+	TestEqual(TEXT("Seed 7 golden initial hash"), Hash, kSeed7GoldenHashPlaceholder);
 	return true;
 }
 

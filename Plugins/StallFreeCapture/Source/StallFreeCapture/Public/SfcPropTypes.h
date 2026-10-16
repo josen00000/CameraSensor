@@ -18,8 +18,8 @@ struct FSfcPropState
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SFC")
-	uint16 Id = 0;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SFC")
+	int32 Id = 0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SFC")
 	ESfcPropClass PropClass = ESfcPropClass::Cube;
@@ -32,4 +32,7 @@ struct FSfcPropState
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SFC")
 	FVector Scale = FVector::OneVector;
+
+	/** Raw sfc::Pcg32::Next() values in spawn order (hash input; not Blueprint-visible). */
+	TArray<uint32> RawDraws;
 };
