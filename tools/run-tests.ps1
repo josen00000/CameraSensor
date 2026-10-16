@@ -8,10 +8,11 @@
 .DESCRIPTION
     This script runs smoke tests for the StallFreeCapture project:
     - sfc_core C++ tests via CMake/CTest (default)
-    - Unreal Engine Automation test SFC.Smoke with -Unreal switch
+    - Unreal Engine Automation test StallFreeCapture.Version with -Unreal switch
 
-    The script always writes a report to docs/reports/smoke-YYYY-MM-DD.txt
-    with PASSED or FAILED status and full details.
+    The script always writes a report to docs/reports/ with PASSED or FAILED status:
+    - smoke-core-YYYY-MM-DD.txt for sfc_core tests
+    - smoke-ue-YYYY-MM-DD.txt for Unreal Automation tests
 
 .PARAMETER Preset
     The CMake preset to use for sfc_core tests. Default is "debug".
@@ -20,8 +21,8 @@
     If specified, removes the build directory before configuring sfc_core.
 
 .PARAMETER Unreal
-    If specified, runs the Unreal Engine Automation test (SFC.Smoke) instead
-    of the sfc_core tests. Requires UnrealEditor-Cmd in PATH or UNREAL_ENGINE
+    If specified, runs the Unreal Engine Automation test (StallFreeCapture.Version)
+    instead of the sfc_core tests. Requires UnrealEditor-Cmd in PATH or UNREAL_ENGINE
     environment variable pointing to the engine root.
 
 .EXAMPLE
@@ -34,7 +35,7 @@
 
 .EXAMPLE
     ./tools/run-tests.ps1 -Unreal
-    Run Unreal Engine Automation test SFC.Smoke in headless mode.
+    Run Unreal Engine Automation test StallFreeCapture.Version in headless mode.
 #>
 
 param(
@@ -75,7 +76,7 @@ if ($Unreal) {
         Write-Host "ERROR: UnrealEditor-Cmd not found in PATH or UNREAL_ENGINE environment variable." -ForegroundColor Red
         Write-Host "Set UNREAL_ENGINE to your Unreal Engine root directory (e.g., C:\Program Files\Epic Games\UE_5.8)" -ForegroundColor Yellow
         
-        $ReportPath = Join-Path $ProjectRoot "docs" "reports" "smoke-$DateStamp.txt"
+        $ReportPath = Join-Path $ProjectRoot "docs" "reports" "smoke-ue-$DateStamp.txt"
         $ReportContent = @"
 StallFreeCapture Unreal Automation Smoke Test Report
 Generated: $Timestamp
@@ -96,7 +97,7 @@ Please install Unreal Engine 5.8 or set UNREAL_ENGINE environment variable.
     
     if (-not (Test-Path $UProjectPath)) {
         Write-Host "ERROR: Project file not found: $UProjectPath" -ForegroundColor Red
-        $ReportPath = Join-Path $ProjectRoot "docs" "reports" "smoke-$DateStamp.txt"
+        $ReportPath = Join-Path $ProjectRoot "docs" "reports" "smoke-ue-$DateStamp.txt"
         $ReportContent = @"
 StallFreeCapture Unreal Automation Smoke Test Report
 Generated: $Timestamp
@@ -114,24 +115,64 @@ Error: CaptureSandbox.uproject not found at: $UProjectPath
     Write-Host "Project: $UProjectPath" -ForegroundColor Gray
     Write-Host "Report export: $ReportExportPath" -ForegroundColor Gray
     Write-Host ""
-    Write-Host "Running SFC.Smoke test..." -ForegroundColor Cyan
+    Write-Host "Running StallFreeCapture.Version test..." -ForegroundColor Cyan
 
     $TestStartTime = Get-Date
     
     # Run the test
     & $UnrealCmd $UProjectPath `
-        -ExecCmds="Automation RunTests StallFreeCapture.Smoke" `
+        -ExecCmds="Automation RunTests StallFreeCapture.Version;Quit" `
         -nullrhi `
         -unattended `
+        -nosplash `
+        -testexit="Automation Test Queue Empty" `
         -ReportExportPath="$ReportExportPath" `
         -log
 
-    $TestExitCode = $LASTEXITCODE
+    $UnrealExitCode = $LASTEXITCODE
     $TestEndTime = Get-Date
     $TestDuration = $TestEndTime - $TestStartTime
 
     Write-Host ""
-    if ($TestExitCode -eq 0) {
+    Write-Host "Unreal Editor exit code: $UnrealExitCode" -ForegroundColor Gray
+
+    # Parse index.json to verify test results
+    $IndexJsonPath = Join-Path $ReportExportPath "index.json"
+    $TestPassed = $false
+    $TestDetails = ""
+    
+    if (Test-Path $IndexJsonPath) {
+        try {
+            $IndexJson = Get-Content $IndexJsonPath -Raw | ConvertFrom-Json
+            $Succeeded = $IndexJson.succeeded
+            $Failed = $IndexJson.failed
+            
+            Write-Host "Test results from index.json: succeeded=$Succeeded, failed=$Failed" -ForegroundColor Gray
+            
+            if ($Succeeded -ge 1 -and $Failed -eq 0) {
+                $TestPassed = $true
+                $TestDetails = "Tests succeeded: $Succeeded, failed: $Failed"
+            } else {
+                $TestPassed = $false
+                if ($Succeeded -lt 1) {
+                    $TestDetails = "FAILED: No tests succeeded (succeeded=$Succeeded, failed=$Failed)"
+                } else {
+                    $TestDetails = "FAILED: Some tests failed (succeeded=$Succeeded, failed=$Failed)"
+                }
+            }
+        } catch {
+            $TestPassed = $false
+            $TestDetails = "FAILED: Could not parse index.json: $_"
+            Write-Host "ERROR: Failed to parse index.json: $_" -ForegroundColor Red
+        }
+    } else {
+        $TestPassed = $false
+        $TestDetails = "FAILED: index.json not found at $IndexJsonPath (no tests matched or early exit)"
+        Write-Host "ERROR: index.json not found at $IndexJsonPath" -ForegroundColor Red
+    }
+
+    Write-Host ""
+    if ($TestPassed) {
         Write-Host "=== Unreal Automation test PASSED ===" -ForegroundColor Green
     } else {
         Write-Host "=== Unreal Automation test FAILED ===" -ForegroundColor Red
@@ -139,26 +180,24 @@ Error: CaptureSandbox.uproject not found at: $UProjectPath
     Write-Host "Duration: $($TestDuration.TotalSeconds.ToString('F2'))s" -ForegroundColor Gray
 
     # Generate report
-    $ReportPath = Join-Path $ProjectRoot "docs" "reports" "smoke-$DateStamp.txt"
+    $ReportPath = Join-Path $ProjectRoot "docs" "reports" "smoke-ue-$DateStamp.txt"
     $ReportContent = @"
 StallFreeCapture Unreal Automation Smoke Test Report
 Generated: $Timestamp
-Test: StallFreeCapture.Smoke
-Mode: -nullrhi -unattended
+Test: StallFreeCapture.Version
+Mode: -nullrhi -unattended -nosplash
 Duration: $($TestDuration.TotalSeconds.ToString('F2'))s
-Exit Code: $TestExitCode
-Result: $(if ($TestExitCode -eq 0) { "PASSED" } else { "FAILED" })
+Unreal Exit Code: $UnrealExitCode
+Exit Code: $(if ($TestPassed) { "0" } else { "1" })
+Result: $(if ($TestPassed) { "PASSED" } else { "FAILED" })
+
+$TestDetails
 
 Command:
-UnrealEditor-Cmd "$UProjectPath" -ExecCmds="Automation RunTests StallFreeCapture.Smoke" -nullrhi -unattended -ReportExportPath="$ReportExportPath" -log
+UnrealEditor-Cmd "$UProjectPath" -ExecCmds="Automation RunTests StallFreeCapture.Version;Quit" -nullrhi -unattended -nosplash -testexit="Automation Test Queue Empty" -ReportExportPath="$ReportExportPath" -log
 
 Report export path: $ReportExportPath
-
-$( if (Test-Path $ReportExportPath) {
-    "Automation reports written to export path (see index.html for details)."
-} else {
-    "Note: Report export path not created (expected if test failed early)."
-})
+Index JSON: $IndexJsonPath
 "@
 
     New-Item -ItemType Directory -Force -Path (Split-Path $ReportPath) | Out-Null
@@ -166,7 +205,7 @@ $( if (Test-Path $ReportExportPath) {
     Write-Host ""
     Write-Host "Report saved to: $ReportPath" -ForegroundColor Gray
 
-    exit $TestExitCode
+    exit $(if ($TestPassed) { 0 } else { 1 })
 
 } else {
     # ===== SFC_CORE C++ TESTS =====
@@ -175,7 +214,7 @@ $( if (Test-Path $ReportExportPath) {
 
     if (-not (Test-Path $SfcCoreRoot)) {
         Write-Host "ERROR: sfc_core directory not found at: $SfcCoreRoot" -ForegroundColor Red
-        $ReportPath = Join-Path $ProjectRoot "docs" "reports" "smoke-$DateStamp.txt"
+        $ReportPath = Join-Path $ProjectRoot "docs" "reports" "smoke-core-$DateStamp.txt"
         $ReportContent = @"
 StallFreeCapture sfc_core Smoke Test Report
 Generated: $Timestamp
@@ -261,14 +300,14 @@ Error: sfc_core directory not found at: $SfcCoreRoot
         }
 
         # Generate report (always, even on failure)
-        $ReportPath = Join-Path $ProjectRoot "docs" "reports" "smoke-$DateStamp.txt"
+        $ReportPath = Join-Path $ProjectRoot "docs" "reports" "smoke-core-$DateStamp.txt"
         $ReportContent = @"
 StallFreeCapture sfc_core Smoke Test Report
 Generated: $Timestamp
 Preset: $Preset
 Working directory: $SfcCoreRoot
 $(if ($TestDuration) { "Test duration: $($TestDuration.TotalSeconds.ToString('F2'))s" } else { "Tests did not run (build or configure failed)" })
-Exit Code: $(if ($TestExitCode -ne 0) { $TestExitCode } elseif ($BuildExitCode -ne 0) { $BuildExitCode } else { $LASTEXITCODE })
+Exit Code: $(if ($OverallSuccess) { "0" } else { if ($TestExitCode -ne 0) { $TestExitCode } elseif ($BuildExitCode -ne 0) { $BuildExitCode } else { "1" } })
 Result: $(if ($OverallSuccess) { "PASSED" } else { "FAILED" })
 
 $(if ($ErrorMessages.Count -gt 0) {
