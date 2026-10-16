@@ -77,3 +77,7 @@ DerivedDataCache/*
 
 # CMake build directories
 build/
+
+# Local test output (do not commit)
+TestResults/
+**/TestResults/

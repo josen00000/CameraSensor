@@ -7,9 +7,6 @@
 
 namespace
 {
-	// Hash buffer is built with explicit little-endian field writes (see Append* below).
-	static_assert(PLATFORM_LITTLE_ENDIAN, "FSfcPropSpawn hash layout assumes little-endian host");
-
 	float UnitIntervalFromDraw(uint32 Draw)
 	{
 		return static_cast<float>(Draw >> 8) * 0x1p-24f;

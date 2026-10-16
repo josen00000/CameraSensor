@@ -68,20 +68,22 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FSfcSeededSpawnerGoldenHashTest::RunTest(const FString& Parameters)
 {
-	if (!kEnableSeed7GoldenHashTest)
+	if constexpr (!kEnableSeed7GoldenHashTest)
 	{
-		AddInfo(
+		AddWarning(
 			TEXT("Golden hash test disabled: set kSeed7GoldenHashPlaceholder from Josen's first run and enable ")
 			TEXT("kEnableSeed7GoldenHashTest (see TODO in SfcSeededSpawnerTest.cpp)."));
 		return true;
 	}
-
-	const FVector ArenaHalfExtents(1000.0f, 1000.0f, 200.0f);
-	TArray<FSfcPropState> States;
-	FSfcPropSpawn::BuildStates(7, 200, ArenaHalfExtents, States);
-	const uint64 Hash = FSfcPropSpawn::HashInitialState(States);
-	TestEqual(TEXT("Seed 7 golden initial hash"), Hash, kSeed7GoldenHashPlaceholder);
-	return true;
+	else
+	{
+		const FVector ArenaHalfExtents(1000.0f, 1000.0f, 200.0f);
+		TArray<FSfcPropState> States;
+		FSfcPropSpawn::BuildStates(7, 200, ArenaHalfExtents, States);
+		const uint64 Hash = FSfcPropSpawn::HashInitialState(States);
+		TestEqual(TEXT("Seed 7 golden initial hash"), Hash, kSeed7GoldenHashPlaceholder);
+		return true;
+	}
 }
 
 #endif
