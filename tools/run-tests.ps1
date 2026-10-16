@@ -50,7 +50,7 @@ $ErrorActionPreference = "Continue"
     # Get ISO-8601 timestamp with zone
     $Timestamp = Get-Date -Format o
     $DateStamp = Get-Date -Format "yyyy-MM-dd"
-    $TimeStamp = Get-Date -Format "HHmmss"
+    $TimeOfDay = Get-Date -Format "HHmmss"
 
 # Determine project root (one level up from tools/)
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
@@ -94,7 +94,7 @@ Please install Unreal Engine 5.8 or set UNREAL_ENGINE environment variable.
 
     # Setup paths
     $UProjectPath = Join-Path $ProjectRoot "CaptureSandbox.uproject"
-    $ReportExportPath = Join-Path $ProjectRoot "docs" "reports" "unreal-automation-$DateStamp-$TimeStamp"
+    $ReportExportPath = Join-Path $ProjectRoot "docs" "reports" "unreal-automation-$DateStamp-$TimeOfDay"
     
     # Delete any existing report export path to prevent reading stale index.json
     if (Test-Path $ReportExportPath) {
