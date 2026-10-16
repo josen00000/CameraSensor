@@ -1,6 +1,7 @@
 #include "sfc/pcg32.h"
 
 #include <gtest/gtest.h>
+#include <utility>
 
 TEST(Pcg32Test, ReferenceVectorsSixDraws) {
   sfc::Pcg32 rng(42, 54);
@@ -55,10 +56,46 @@ TEST(Pcg32Test, SnapshotAndCopyReplaySequence) {
   const uint32_t next_from_original = original.Next();
 
   sfc::Pcg32 replay(0, 0);
-  replay.SetState(snapshot);
+  EXPECT_TRUE(replay.SetState(snapshot));
   EXPECT_EQ(replay.Next(), next_from_original);
 
   sfc::Pcg32 copied(original);
   const uint32_t following = original.Next();
   EXPECT_EQ(copied.Next(), following);
+}
+
+TEST(Pcg32Test, SetStateRejectsInvalidSnapshot) {
+  sfc::Pcg32 reference(42, 54);
+  (void)reference.Next();
+  (void)reference.Next();
+  const auto before = reference.GetState();
+  const uint32_t third_draw = reference.Next();
+
+  sfc::Pcg32 rng(42, 54);
+  (void)rng.Next();
+  (void)rng.Next();
+
+  sfc::Pcg32::Snapshot bad = before;
+  bad.multiplier += 1;
+  EXPECT_FALSE(rng.SetState(bad));
+  EXPECT_EQ(rng.GetState().multiplier, before.multiplier);
+  EXPECT_EQ(rng.GetState().inc, before.inc);
+  EXPECT_EQ(rng.GetState().state, before.state);
+  EXPECT_EQ(rng.Next(), third_draw);
+}
+
+TEST(Pcg32Test, MoveLeavesSourceValid) {
+  sfc::Pcg32 donor(42, 54);
+  const uint32_t first = donor.Next();
+
+  sfc::Pcg32 moved(std::move(donor));
+  const uint32_t second = moved.Next();
+
+  sfc::Pcg32 expected(42, 54);
+  EXPECT_EQ(expected.Next(), first);
+  EXPECT_EQ(expected.Next(), second);
+
+  const uint32_t from_donor = donor.Next();
+  sfc::Pcg32 fresh(0, 0);
+  EXPECT_EQ(from_donor, fresh.Next());
 }

@@ -2,19 +2,22 @@
 
 #include <cstdint>
 #include <memory>
-#include <string>
 
 namespace sfc {
 
 class Pcg32 {
  public:
-  using Snapshot = std::string;
+  struct Snapshot {
+    uint64_t multiplier;
+    uint64_t inc;
+    uint64_t state;
+  };
 
   Pcg32(uint64_t seed, uint64_t stream = 0);
   Pcg32(const Pcg32& other);
   Pcg32& operator=(const Pcg32& other);
-  Pcg32(Pcg32&&) noexcept = default;
-  Pcg32& operator=(Pcg32&&) noexcept = default;
+  Pcg32(Pcg32&& other) noexcept;
+  Pcg32& operator=(Pcg32&& other) noexcept;
   ~Pcg32();
 
   uint32_t Next();
@@ -22,7 +25,7 @@ class Pcg32 {
   void Seed(uint64_t seed, uint64_t stream = 0);
 
   Snapshot GetState() const;
-  void SetState(const Snapshot& snapshot);
+  bool SetState(const Snapshot& snapshot);
 
  private:
   struct Rng;

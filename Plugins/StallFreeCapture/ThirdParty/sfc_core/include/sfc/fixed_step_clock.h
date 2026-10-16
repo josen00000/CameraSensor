@@ -1,7 +1,7 @@
 #pragma once
 
 #include <cstdint>
-#include <stdexcept>
+#include <optional>
 
 namespace sfc {
 
@@ -15,9 +15,12 @@ namespace sfc {
 //
 // Advance() takes non-negative delta_microseconds; callers must clamp negative
 // frame deltas before calling.
+//
+// Use Create() to construct; invalid parameters return std::nullopt (no exceptions).
 class FixedStepClock {
  public:
-  FixedStepClock(uint64_t period_microseconds, uint64_t ticks_per_period);
+  static std::optional<FixedStepClock> Create(uint64_t period_microseconds,
+                                              uint64_t ticks_per_period);
 
   struct AdvanceResult {
     uint64_t ticks_ready;
@@ -31,20 +34,11 @@ class FixedStepClock {
   uint64_t GetLeftoverMicroseconds() const;
 
  private:
+  FixedStepClock(uint64_t period_microseconds, uint64_t ticks_per_period);
+
   uint64_t period_us_;
   uint64_t ticks_per_period_;
   uint64_t owed_scaled_;
 };
-
-inline FixedStepClock::FixedStepClock(uint64_t period_microseconds,
-                                      uint64_t ticks_per_period)
-    : period_us_(period_microseconds),
-      ticks_per_period_(ticks_per_period),
-      owed_scaled_(0) {
-  if (period_microseconds == 0 || ticks_per_period == 0) {
-    throw std::invalid_argument(
-        "FixedStepClock period and ticks_per_period must be non-zero");
-  }
-}
 
 }  // namespace sfc

@@ -27,9 +27,9 @@ target_compile_definitions(sfc_core PRIVATE PCG_LITTLE_ENDIAN=1)
 target_compile_features(sfc_core PUBLIC cxx_std_20)
 
 if(MSVC)
-    target_compile_options(sfc_core PRIVATE /W4)
+    target_compile_options(sfc_core PRIVATE /W4 /WX)
 else()
-    target_compile_options(sfc_core PRIVATE -Wall -Wextra)
+    target_compile_options(sfc_core PRIVATE -Wall -Wextra -Werror)
 endif()
 
 # Enable testing

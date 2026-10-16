@@ -8,14 +8,16 @@ constexpr uint64_t kPeriodUs = 1'000'000;
 constexpr uint64_t kTicksPerPeriod = 60;
 
 sfc::FixedStepClock Make60HzClock() {
-  return sfc::FixedStepClock(kPeriodUs, kTicksPerPeriod);
+  auto clock = sfc::FixedStepClock::Create(kPeriodUs, kTicksPerPeriod);
+  EXPECT_TRUE(clock.has_value());
+  return *clock;
 }
 
 }  // namespace
 
 TEST(FixedStepClockTest, RejectsZeroPeriodOrTicks) {
-  EXPECT_THROW(sfc::FixedStepClock(0, 60), std::invalid_argument);
-  EXPECT_THROW(sfc::FixedStepClock(1'000'000, 0), std::invalid_argument);
+  EXPECT_FALSE(sfc::FixedStepClock::Create(0, 60).has_value());
+  EXPECT_FALSE(sfc::FixedStepClock::Create(1'000'000, 0).has_value());
 }
 
 TEST(FixedStepClockTest, Advance205msAt60Hz) {
@@ -65,6 +67,20 @@ TEST(FixedStepClockTest, HitchCarriesLeftover) {
 
   EXPECT_EQ(result2.ticks_ready, expected_ticks);
   EXPECT_EQ(result2.leftover_microseconds, expected_leftover_us);
+}
+
+TEST(FixedStepClockTest, Alternating16666And16667MatchesRationalTicks) {
+  sfc::FixedStepClock clock = Make60HzClock();
+
+  uint64_t total_us = 0;
+  uint64_t total_ticks = 0;
+  for (int i = 0; i < 3600; ++i) {
+    const uint64_t frame_us = (i % 2 == 0) ? 16'666u : 16'667u;
+    total_us += frame_us;
+    total_ticks += clock.Advance(frame_us).ticks_ready;
+  }
+
+  EXPECT_EQ(total_ticks, (total_us * kTicksPerPeriod) / kPeriodUs);
 }
 
 TEST(FixedStepClockTest, TinyFramesAccumulate) {

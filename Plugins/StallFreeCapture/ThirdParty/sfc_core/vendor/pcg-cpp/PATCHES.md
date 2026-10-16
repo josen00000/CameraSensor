@@ -8,7 +8,7 @@
 
 | Location | Change |
 |----------|--------|
-| After `#define PCG_RAND_HPP_INCLUDED 1` | Add `PCG_ALWAYS_INLINE` macro: `__forceinline` on MSVC, `__attribute__((always_inline)) inline` otherwise. |
+| After `#define PCG_RAND_HPP_INCLUDED 1` | Add `PCG_ALWAYS_INLINE` macro: `__forceinline` on MSVC; on GCC/Clang `__attribute__((always_inline))` plus an explicit `inline` keyword. |
 | `extended::operator()` (~line 1215) | Replace `__attribute__((always_inline))` with `PCG_ALWAYS_INLINE`. |
 
 **Reason:** MSVC does not accept GCC-style `__attribute__((always_inline))`.
