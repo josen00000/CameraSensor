@@ -78,6 +78,6 @@ DerivedDataCache/*
 # CMake build directories
 build/
 
-# Test reports (actual reports go in docs/reports/)
+# Test reports (paste summary into PR description only; never commit)
 /test-report.txt
-docs/reports/unreal-automation-*/
+docs/reports/
