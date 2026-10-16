@@ -65,7 +65,8 @@
         #define PCG_LITTLE_ENDIAN 1
     #elif __BIG_ENDIAN__ || _BIG_ENDIAN
         #define PCG_LITTLE_ENDIAN 0
-    #elif __x86_64 || __x86_64__ || __i386 || __i386__
+    #elif __x86_64 || __x86_64__ || __i386 || __i386__ \
+          || _M_X64 || _M_IX86 || _M_AMD64
         #define PCG_LITTLE_ENDIAN 1
     #elif __powerpc__ || __POWERPC__ || __ppc__ || __PPC__ \
           || __m68k__ || __mc68000__
