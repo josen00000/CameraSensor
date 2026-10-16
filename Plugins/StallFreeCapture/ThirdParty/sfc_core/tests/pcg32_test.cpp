@@ -45,3 +45,20 @@ TEST(Pcg32Test, ReseedProducesSameSequence) {
   EXPECT_EQ(first1, first2);
   EXPECT_EQ(second1, second2);
 }
+
+TEST(Pcg32Test, SnapshotAndCopyReplaySequence) {
+  sfc::Pcg32 original(42, 54);
+  (void)original.Next();
+  (void)original.Next();
+
+  const auto snapshot = original.GetState();
+  const uint32_t next_from_original = original.Next();
+
+  sfc::Pcg32 replay(0, 0);
+  replay.SetState(snapshot);
+  EXPECT_EQ(replay.Next(), next_from_original);
+
+  sfc::Pcg32 copied(original);
+  const uint32_t following = original.Next();
+  EXPECT_EQ(copied.Next(), following);
+}

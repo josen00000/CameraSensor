@@ -1,7 +1,7 @@
 #include "sfc/xxhash_wrapper.h"
 
 #define XXH_INLINE_ALL
-#include "../vendor/xxhash/xxhash.h"
+#include <xxhash.h>
 
 namespace sfc {
 

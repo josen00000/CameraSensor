@@ -1,27 +1,51 @@
 #include "sfc/pcg32.h"
 
-#include "../vendor/pcg-cpp/pcg_random.hpp"
+#include <pcg_random.hpp>
+#include <sstream>
 
 namespace sfc {
 
-class Pcg32::Impl {
- public:
-  explicit Impl(uint64_t seed, uint64_t stream) : rng_(seed, stream) {}
+struct Pcg32::Rng {
+  pcg32 engine;
 
-  uint32_t Next() { return rng_(); }
-
-  void Seed(uint64_t seed, uint64_t stream) { rng_.seed(seed, stream); }
-
- private:
-  pcg32 rng_;
+  explicit Rng(uint64_t seed, uint64_t stream) : engine(seed, stream) {}
 };
 
-Pcg32::Pcg32(uint64_t seed, uint64_t stream) : impl_(new Impl(seed, stream)) {}
+Pcg32::Pcg32(uint64_t seed, uint64_t stream)
+    : rng_(std::make_unique<Rng>(seed, stream)) {}
 
-Pcg32::~Pcg32() { delete impl_; }
+Pcg32::Pcg32(const Pcg32& other)
+    : rng_(std::make_unique<Rng>(0, 0)) {
+  std::ostringstream out;
+  out << other.rng_->engine;
+  std::istringstream in(out.str());
+  in >> rng_->engine;
+}
 
-uint32_t Pcg32::Next() { return impl_->Next(); }
+Pcg32& Pcg32::operator=(const Pcg32& other) {
+  if (this != &other) {
+    SetState(other.GetState());
+  }
+  return *this;
+}
 
-void Pcg32::Seed(uint64_t seed, uint64_t stream) { impl_->Seed(seed, stream); }
+Pcg32::~Pcg32() = default;
+
+uint32_t Pcg32::Next() { return rng_->engine(); }
+
+void Pcg32::Seed(uint64_t seed, uint64_t stream) {
+  rng_->engine.seed(seed, stream);
+}
+
+Pcg32::Snapshot Pcg32::GetState() const {
+  std::ostringstream out;
+  out << rng_->engine;
+  return out.str();
+}
+
+void Pcg32::SetState(const Snapshot& snapshot) {
+  std::istringstream in(snapshot);
+  in >> rng_->engine;
+}
 
 }  // namespace sfc

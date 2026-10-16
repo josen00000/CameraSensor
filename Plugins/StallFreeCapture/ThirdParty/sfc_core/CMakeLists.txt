@@ -17,12 +17,20 @@ target_include_directories(sfc_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-target_include_directories(sfc_core PRIVATE
+target_include_directories(sfc_core SYSTEM PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor/pcg-cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor/xxhash
 )
 
+target_compile_definitions(sfc_core PRIVATE PCG_LITTLE_ENDIAN=1)
+
 target_compile_features(sfc_core PUBLIC cxx_std_20)
+
+if(MSVC)
+    target_compile_options(sfc_core PRIVATE /W4)
+else()
+    target_compile_options(sfc_core PRIVATE -Wall -Wextra)
+endif()
 
 # Enable testing
 enable_testing()

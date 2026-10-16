@@ -2,19 +2,20 @@
 
 namespace sfc {
 
-FixedStepClock::FixedStepClock(uint64_t step_microseconds)
-    : step_us_(step_microseconds), leftover_us_(0) {}
-
 FixedStepClock::AdvanceResult FixedStepClock::Advance(uint64_t delta_microseconds) {
-  uint64_t total_us = leftover_us_ + delta_microseconds;
-  int ticks = static_cast<int>(total_us / step_us_);
-  leftover_us_ = total_us % step_us_;
+  const uint64_t total_scaled = owed_scaled_ + delta_microseconds * ticks_per_period_;
+  const uint64_t ticks = total_scaled / period_us_;
+  owed_scaled_ = total_scaled % period_us_;
 
-  return AdvanceResult{ticks, leftover_us_};
+  return AdvanceResult{ticks, owed_scaled_ / ticks_per_period_};
 }
 
-uint64_t FixedStepClock::GetStepMicroseconds() const { return step_us_; }
+uint64_t FixedStepClock::GetPeriodMicroseconds() const { return period_us_; }
 
-uint64_t FixedStepClock::GetLeftoverMicroseconds() const { return leftover_us_; }
+uint64_t FixedStepClock::GetTicksPerPeriod() const { return ticks_per_period_; }
+
+uint64_t FixedStepClock::GetLeftoverMicroseconds() const {
+  return owed_scaled_ / ticks_per_period_;
+}
 
 }  // namespace sfc
