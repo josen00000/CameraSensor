@@ -73,6 +73,7 @@ void FSfcPropSpawn::BuildStates(
 {
 	bool bClamped = false;
 	const int32 SafeCount = SanitizePropCount(PropCount, bClamped);
+	(void)bClamped;
 	OutStates.Reset();
 	OutStates.Reserve(SafeCount);
 
