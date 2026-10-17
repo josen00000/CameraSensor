@@ -8,13 +8,29 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # sfc_core static library
 add_library(sfc_core STATIC
     src/version.cpp
+    src/pcg32.cpp
+    src/xxhash_wrapper.cpp
+    src/fixed_step_clock.cpp
 )
 
 target_include_directories(sfc_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
+target_include_directories(sfc_core SYSTEM PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/pcg-cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/xxhash
+)
+
+target_compile_definitions(sfc_core PRIVATE PCG_LITTLE_ENDIAN=1)
+
 target_compile_features(sfc_core PUBLIC cxx_std_20)
+
+if(MSVC)
+    target_compile_options(sfc_core PRIVATE /W4 /WX)
+else()
+    target_compile_options(sfc_core PRIVATE -Wall -Wextra -Werror)
+endif()
 
 # Enable testing
 enable_testing()
@@ -35,6 +51,9 @@ FetchContent_MakeAvailable(googletest)
 # Test executable
 add_executable(sfc_core_tests
     tests/version_test.cpp
+    tests/pcg32_test.cpp
+    tests/xxhash_test.cpp
+    tests/fixed_step_clock_test.cpp
 )
 
 target_link_libraries(sfc_core_tests

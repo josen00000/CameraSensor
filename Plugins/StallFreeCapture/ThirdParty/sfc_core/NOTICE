@@ -1,0 +1,13 @@
+sfc_core incorporates the following third-party software:
+
+PCG Random Number Generation for C++
+  Copyright 2014 Melissa O'Neill
+  Licensed under the Apache License, Version 2.0
+  https://github.com/imneme/pcg-cpp (v0.98.1 + local patch; see vendor/pcg-cpp/PATCHES.md)
+
+xxHash
+  Copyright (c) 2012-2024 Yann Collet
+  Licensed under the BSD 2-Clause License
+  https://github.com/Cyan4973/xxHash (v0.8.2)
+
+Full license texts are in vendor/pcg-cpp/LICENSE.txt and vendor/xxhash/LICENSE.
