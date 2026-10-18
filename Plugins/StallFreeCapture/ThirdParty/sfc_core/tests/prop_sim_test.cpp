@@ -109,7 +109,6 @@ TEST(PropSimTest, HitchDoesNotChangeTick3600Hash) {
       states[static_cast<size_t>(index)].pos_milli[0] = index * 10'000;
     }
     sfc::InitSimVelocities(7, states.data(), kPropCount);
-    const sfc::ArenaMilli arena = DefaultArena();
 
     auto clock = sfc::FixedStepClock::Create(1'000'000, 60);
     EXPECT_TRUE(clock.has_value());
