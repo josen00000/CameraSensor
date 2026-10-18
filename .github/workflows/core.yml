@@ -4,10 +4,14 @@ on:
   push:
     paths:
       - 'Plugins/StallFreeCapture/ThirdParty/sfc_core/**'
+      - 'tools/**'
+      - 'docs/**'
       - '.github/**'
   pull_request:
     paths:
       - 'Plugins/StallFreeCapture/ThirdParty/sfc_core/**'
+      - 'tools/**'
+      - 'docs/**'
       - '.github/**'
 
 jobs:

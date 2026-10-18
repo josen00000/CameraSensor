@@ -139,7 +139,7 @@ Error: CaptureSandbox.uproject not found at: $UProjectPath
     Write-Host "Project: $UProjectPath" -ForegroundColor Gray
     Write-Host "Report export: $ReportExportPath" -ForegroundColor Gray
     Write-Host ""
-    Write-Host "Running StallFreeCapture.Version test..." -ForegroundColor Cyan
+    Write-Host "Running Automation tests: $UnrealTestFilter ..." -ForegroundColor Cyan
 
     $TestStartTime = Get-Date
     
