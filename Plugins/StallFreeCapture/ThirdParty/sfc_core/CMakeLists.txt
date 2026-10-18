@@ -11,6 +11,7 @@ add_library(sfc_core STATIC
     src/pcg32.cpp
     src/xxhash_wrapper.cpp
     src/fixed_step_clock.cpp
+    src/latency_histogram.cpp
 )
 
 target_include_directories(sfc_core PUBLIC
@@ -54,6 +55,7 @@ add_executable(sfc_core_tests
     tests/pcg32_test.cpp
     tests/xxhash_test.cpp
     tests/fixed_step_clock_test.cpp
+    tests/latency_histogram_test.cpp
 )
 
 target_link_libraries(sfc_core_tests
