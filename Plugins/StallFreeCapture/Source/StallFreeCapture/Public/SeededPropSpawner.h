@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "SfcPropTypes.h"
+#include "sfc/prop_sim.h"
 #include "SeededPropSpawner.generated.h"
 
 UCLASS()
@@ -31,10 +32,25 @@ public:
 	uint64 InitialStateHash = 0;
 
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+	/** One 60 Hz analytic sim tick with arena wall bounce (sim clock only). */
+	void StepSim();
+
+	uint64 GetSimTickIndex() const { return SimTickIndex; }
+
+	const TArray<sfc::PropSimState>& GetSimStates() const { return SimStates; }
+
+	void InitializeSimulationFromSpawn();
 
 private:
 	void SpawnPropsInWorld();
+	void SyncActorsFromSim();
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<AActor>> SpawnedPropActors;
+
+	TArray<sfc::PropSimState> SimStates;
+	sfc::ArenaMilli ArenaMilli;
+	uint64 SimTickIndex = 0;
 };

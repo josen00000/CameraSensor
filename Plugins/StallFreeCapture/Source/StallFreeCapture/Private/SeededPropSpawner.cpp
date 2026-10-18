@@ -4,7 +4,9 @@
 
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
+#include "SfcPropSim.h"
 #include "SfcPropSpawn.h"
+#include "SfcSimClockSubsystem.h"
 #include "StallFreeCapture.h"
 
 ASeededPropSpawner::ASeededPropSpawner()
@@ -42,7 +44,67 @@ void ASeededPropSpawner::BeginPlay()
 		PropStates.Num(),
 		InitialStateHash);
 
+	InitializeSimulationFromSpawn();
 	SpawnPropsInWorld();
+
+	if (UWorld* World = GetWorld())
+	{
+		if (USfcSimClockSubsystem* SimClock = World->GetSubsystem<USfcSimClockSubsystem>())
+		{
+			SimClock->RegisterSpawner(this);
+		}
+	}
+}
+
+void ASeededPropSpawner::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (UWorld* World = GetWorld())
+	{
+		if (USfcSimClockSubsystem* SimClock = World->GetSubsystem<USfcSimClockSubsystem>())
+		{
+			SimClock->UnregisterSpawner(this);
+		}
+	}
+
+	Super::EndPlay(EndPlayReason);
+}
+
+void ASeededPropSpawner::InitializeSimulationFromSpawn()
+{
+	ArenaMilli = FSfcPropSim::ArenaToSimMilli(ArenaHalfExtents);
+	FSfcPropSim::BuildSimStatesFromSpawn(Seed, PropStates, SimStates);
+	SimTickIndex = 0;
+
+	for (int32 Index = 0; Index < SimStates.Num(); ++Index)
+	{
+		if (sfc::ClampPropInsideArena(SimStates[Index], ArenaMilli))
+		{
+			UE_LOG(
+				LogStallFreeCapture,
+				Warning,
+				TEXT("Prop id=%d spawned outside arena; clamped to bounds."),
+				SimStates[Index].id);
+			FSfcPropSim::SyncVisualStateFromSim(SimStates[Index], PropStates[Index]);
+		}
+	}
+}
+
+void ASeededPropSpawner::StepSim()
+{
+	if (SimStates.IsEmpty())
+	{
+		return;
+	}
+
+	FSfcPropSim::StepSimTick(SimStates, ArenaMilli);
+	++SimTickIndex;
+
+	for (int32 Index = 0; Index < SimStates.Num(); ++Index)
+	{
+		FSfcPropSim::SyncVisualStateFromSim(SimStates[Index], PropStates[Index]);
+	}
+
+	SyncActorsFromSim();
 }
 
 void ASeededPropSpawner::SpawnPropsInWorld()
@@ -107,5 +169,19 @@ void ASeededPropSpawner::SpawnPropsInWorld()
 		PropActor->SetActorEnableCollision(false);
 
 		SpawnedPropActors.Add(PropActor);
+	}
+}
+
+void ASeededPropSpawner::SyncActorsFromSim()
+{
+	const int32 ActorCount = SpawnedPropActors.Num();
+	const int32 StateCount = PropStates.Num();
+	const int32 Count = FMath::Min(ActorCount, StateCount);
+	for (int32 Index = 0; Index < Count; ++Index)
+	{
+		if (AStaticMeshActor* PropActor = Cast<AStaticMeshActor>(SpawnedPropActors[Index]))
+		{
+			PropActor->SetActorLocation(PropStates[Index].Position);
+		}
 	}
 }
