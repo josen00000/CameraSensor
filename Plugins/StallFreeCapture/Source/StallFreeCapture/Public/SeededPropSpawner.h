@@ -37,6 +37,8 @@ public:
 	/** One 60 Hz analytic sim tick with arena wall bounce (sim clock only). */
 	void StepSim();
 
+	uint64 HashState() const;
+
 	uint64 GetSimTickIndex() const { return SimTickIndex; }
 
 	const TArray<sfc::PropSimState>& GetSimStates() const { return SimStates; }

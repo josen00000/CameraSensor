@@ -107,6 +107,11 @@ void ASeededPropSpawner::StepSim()
 	SyncActorsFromSim();
 }
 
+uint64 ASeededPropSpawner::HashState() const
+{
+	return FSfcPropSim::HashSimStates(SimStates);
+}
+
 void ASeededPropSpawner::SpawnPropsInWorld()
 {
 	for (AActor* Actor : SpawnedPropActors)

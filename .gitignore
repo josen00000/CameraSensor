@@ -77,3 +77,8 @@ DerivedDataCache/*
 
 # CMake build directories
 build/
+
+# Test reports (paste summary into PR description only; never commit)
+/test-report.txt
+docs/reports/
+TestResults/
