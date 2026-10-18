@@ -15,22 +15,36 @@ namespace sfc {
 // cover the closed interval [1 µs, 10 s] = [1, 10'000'000 µs]. Bucket i (0-based)
 // holds samples in [lower(i), upper(i)), except the last finite bucket which is
 // [lower(kNumBuckets - 1), 10'000'000] inclusive. The overflow bucket holds
-// samples strictly greater than 10'000'000 µs.
+// samples strictly greater than 10'000'000 µs. A sample of 0 µs is recorded in
+// bucket 0 (same as values in [1, lower(1))).
 //
 // Lower bounds follow a geometric progression: lower(i) ≈ 10^(7·i/64) µs (rounded
-// to integer, strictly increasing). Successive finite bucket widths grow with the
-// value scale; each width is at most the width of the bucket that contains the
-// true percentile on a sorted sample (see accuracy bound below).
+// to integer, strictly increasing). Relative bucket width (upper − lower) / lower
+// is about 29% on average for i ≥ 10; the widest low decade step is 33% at
+// [12, 16) µs. Buckets 0–9 (1–10 µs) each have width 1 (0% relative error from
+// width alone).
+//
+// Concurrency
+// -----------
+// Record() is safe to call concurrently. Percentile() and Count() each load all
+// bucket atomics once; results are a consistent snapshot of those loads but may
+// not correspond to any single point in time when other threads are recording.
+// Do not call Reset() concurrently with Record().
 //
 // Percentile accuracy
 // -------------------
-// Percentile(p) uses the nearest-rank method on the aggregated histogram: for
-// count N and percentile p ∈ [0, 100], the target rank is
+// Percentile(p) uses the nearest-rank method on the snapshot: for count N and
+// percentile p ∈ [0, 100] (NaN p returns 0), the target rank is
 //   rank = min(N, max(1, ⌈p/100 · N⌉))   (1-based)
-// The returned value is the lower bound of the bucket where the cumulative count
-// first reaches rank. For any fixed multiset of samples, each reported percentile
-// differs from the nearest-rank value of the sorted samples by at most one
-// finite-bucket width (the width of the bucket that contains the true rank value).
+// The returned value is the lower bound of the finite bucket where the cumulative
+// count first reaches rank, or 10'000'001 µs when that bucket is overflow. An
+// empty histogram (N = 0) returns 0.
+//
+// Compared with the exact nearest-rank value from sorting the same samples, the
+// error is strictly less than that bucket's width (upper − lower): the answer is
+// always the true bucket's lower bound, which is at most the true sample value
+// and at least (true value − width + 1) for finite buckets. Overflow percentiles
+// report 10'000'001 with no finite width bound.
 //
 // Exception-free; safe to include from Unreal targets compiled with exceptions
 // disabled.
@@ -64,7 +78,6 @@ class LatencyHistogram {
   static size_t BucketIndex(uint64_t microseconds);
 
   std::array<std::atomic<uint64_t>, kNumBuckets + 1> buckets_;
-  std::atomic<uint64_t> total_{0};
 };
 
 constexpr uint64_t LatencyHistogram::BucketLowerBound(size_t bucket_index) {
