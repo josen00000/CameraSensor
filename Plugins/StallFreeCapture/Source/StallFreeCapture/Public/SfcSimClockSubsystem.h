@@ -31,7 +31,7 @@ public:
 
 	virtual void Tick(float DeltaTime) override;
 	virtual TStatId GetStatId() const override;
-	virtual bool IsTickableInEditor() const override { return true; }
+	virtual bool IsTickableInEditor() const override { return false; }
 
 	uint64 GetSimTickIndex() const { return SimTickIndex; }
 
@@ -56,4 +56,6 @@ private:
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<ASeededPropSpawner>> RegisteredSpawners;
+
+	double TickRemainderMicroseconds = 0.0;
 };

@@ -1,6 +1,7 @@
 #include "sfc/prop_sim.h"
 
 #include "sfc/fixed_step_clock.h"
+#include "sfc/wall_time_budget.h"
 
 #include <gtest/gtest.h>
 
@@ -32,6 +33,36 @@ std::vector<sfc::PropSimState> MakeTwoProps() {
   states[1].vel_milli_per_tick[1] = 0;
   states[1].vel_milli_per_tick[2] = 0;
   return states;
+}
+
+uint64_t RunHashWallSchedule(const std::vector<uint64_t>& schedule) {
+  constexpr int32_t kPropCount = 8;
+  const sfc::ArenaMilli arena = DefaultArena();
+
+  std::vector<sfc::PropSimState> states(static_cast<size_t>(kPropCount));
+  for (int32_t index = 0; index < kPropCount; ++index) {
+    states[static_cast<size_t>(index)].id = index + 1;
+    states[static_cast<size_t>(index)].prop_class = static_cast<uint8_t>(index % 3);
+    states[static_cast<size_t>(index)].pos_milli[0] = index * 10'000;
+  }
+  sfc::InitSimVelocities(7, states.data(), kPropCount);
+
+  auto clock = sfc::FixedStepClock::Create(1'000'000, 60);
+  EXPECT_TRUE(clock.has_value());
+
+  uint64_t hash_at_3600 = 0;
+  sfc::WallBudgetRunCallbacks callbacks;
+  callbacks.on_tick = [&](uint64_t tick_index) {
+    sfc::StepAllPropSim(states.data(), kPropCount, arena);
+    if (tick_index == 3600) {
+      hash_at_3600 = sfc::HashPropSimStates(states.data(), kPropCount);
+    }
+  };
+
+  const sfc::WallBudgetRunResult result = sfc::RunWallSchedule(*clock, schedule, callbacks);
+  EXPECT_EQ(result.ticks, 3600u);
+  EXPECT_EQ(result.microseconds_fed, sfc::kSixtySecondWallBudgetUs);
+  return hash_at_3600;
 }
 
 }  // namespace
@@ -84,51 +115,7 @@ TEST(PropSimTest, ClampDetectsOutsideArena) {
 }
 
 TEST(PropSimTest, HitchDoesNotChangeTick3600Hash) {
-  const sfc::ArenaMilli arena = DefaultArena();
-  constexpr int32_t kPropCount = 8;
-
-  auto run_direct = [&arena]() {
-    std::vector<sfc::PropSimState> states(static_cast<size_t>(kPropCount));
-    for (int32_t index = 0; index < kPropCount; ++index) {
-      states[static_cast<size_t>(index)].id = index + 1;
-      states[static_cast<size_t>(index)].prop_class = static_cast<uint8_t>(index % 3);
-      states[static_cast<size_t>(index)].pos_milli[0] = index * 10'000;
-    }
-    sfc::InitSimVelocities(7, states.data(), kPropCount);
-    for (uint64_t tick = 1; tick <= 3600; ++tick) {
-      sfc::StepAllPropSim(states.data(), kPropCount, arena);
-    }
-    return sfc::HashPropSimStates(states.data(), kPropCount);
-  };
-
-  auto run_with_hitch = [&arena]() {
-    std::vector<sfc::PropSimState> states(static_cast<size_t>(kPropCount));
-    for (int32_t index = 0; index < kPropCount; ++index) {
-      states[static_cast<size_t>(index)].id = index + 1;
-      states[static_cast<size_t>(index)].prop_class = static_cast<uint8_t>(index % 3);
-      states[static_cast<size_t>(index)].pos_milli[0] = index * 10'000;
-    }
-    sfc::InitSimVelocities(7, states.data(), kPropCount);
-
-    auto clock = sfc::FixedStepClock::Create(1'000'000, 60);
-    EXPECT_TRUE(clock.has_value());
-    uint64_t sim_ticks = 0;
-    while (sim_ticks < 3600) {
-      uint64_t delta_us = 16'667;
-      if (sim_ticks == 999) {
-        delta_us = 200'000;
-      }
-      const auto advance = clock->Advance(delta_us);
-      for (uint64_t step = 0; step < advance.ticks_ready; ++step) {
-        ++sim_ticks;
-        sfc::StepAllPropSim(states.data(), kPropCount, arena);
-        if (sim_ticks >= 3600) {
-          break;
-        }
-      }
-    }
-    return sfc::HashPropSimStates(states.data(), kPropCount);
-  };
-
-  EXPECT_EQ(run_direct(), run_with_hitch());
+  const std::vector<uint64_t> base = sfc::BuildAlternatingWallSchedule(sfc::kSixtySecondWallBudgetUs);
+  const std::vector<uint64_t> hitch = sfc::BuildHitchWallSchedule(base);
+  EXPECT_EQ(RunHashWallSchedule(base), RunHashWallSchedule(hitch));
 }

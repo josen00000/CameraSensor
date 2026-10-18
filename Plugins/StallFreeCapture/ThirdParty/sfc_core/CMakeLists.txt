@@ -13,6 +13,7 @@ add_library(sfc_core STATIC
     src/fixed_step_clock.cpp
     src/prop_sim.cpp
     src/capture_trigger.cpp
+    src/wall_time_budget.cpp
 )
 
 target_include_directories(sfc_core PUBLIC
@@ -58,6 +59,7 @@ add_executable(sfc_core_tests
     tests/fixed_step_clock_test.cpp
     tests/prop_sim_test.cpp
     tests/capture_trigger_test.cpp
+    tests/wall_time_budget_test.cpp
 )
 
 target_link_libraries(sfc_core_tests

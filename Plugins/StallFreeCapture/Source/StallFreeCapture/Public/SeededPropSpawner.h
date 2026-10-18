@@ -55,4 +55,5 @@ private:
 	TArray<sfc::PropSimState> SimStates;
 	sfc::ArenaMilli ArenaMilli;
 	uint64 SimTickIndex = 0;
+	TSet<int32> ClampWarnedPropIds;
 };

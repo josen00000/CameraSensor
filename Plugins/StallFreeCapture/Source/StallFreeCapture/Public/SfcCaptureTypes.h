@@ -11,10 +11,10 @@ struct FSfcCaptureStamp
 	GENERATED_BODY()
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SFC")
-	uint64 Seq = 0;
+	int64 Seq = 0;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SFC")
-	uint64 TickIndex = 0;
+	int64 TickIndex = 0;
 };
 
 DECLARE_MULTICAST_DELEGATE_TwoParams(FSfcOnCaptureTick, uint64 /*Seq*/, uint64 /*TickIndex*/);

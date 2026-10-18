@@ -2,10 +2,13 @@
 
 #pragma once
 
+#include "SfcCaptureTypes.h"
 #include "SfcPropSim.h"
 #include "SfcPropSpawn.h"
 #include "SfcSimClockSubsystem.h"
+#include "sfc/capture_trigger.h"
 #include "sfc/fixed_step_clock.h"
+#include "sfc/wall_time_budget.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -15,19 +18,33 @@ namespace SfcSceneSimTest
 	inline constexpr int32 kDefaultPropCount = 200;
 	inline constexpr int32 kSimTicks = 3600;
 
-	inline bool RunPerTickHashes(
-		uint64 Seed,
-		int32 PropCount,
-		TArray<uint64>& OutPerTickHashes,
-		bool bHitchAtTick1000)
+	struct WallSimRunResult
 	{
-		OutPerTickHashes.Reset();
+		uint64 TickCount = 0;
+		uint64 MicrosecondsFed = 0;
+		uint64 HashAtTick600 = 0;
+		uint64 HashAtTick3600 = 0;
+		TArray<uint64> PerTickHashes;
+		TArray<FSfcCaptureStamp> CaptureHistory;
+	};
 
+	inline void InitSimStatesForSeed(uint64 Seed, int32 PropCount, TArray<sfc::PropSimState>& OutSimStates)
+	{
 		TArray<FSfcPropState> PropStates;
 		FSfcPropSpawn::BuildStates(Seed, PropCount, kDefaultArenaHalfExtents, PropStates);
+		FSfcPropSim::BuildSimStatesFromSpawn(Seed, PropStates, OutSimStates);
+	}
+
+	inline WallSimRunResult RunSimWallSchedule(
+		uint64 Seed,
+		int32 PropCount,
+		const std::vector<uint64_t>& FrameDeltasUs,
+		bool bRecordCaptures)
+	{
+		WallSimRunResult Result;
 
 		TArray<sfc::PropSimState> SimStates;
-		FSfcPropSim::BuildSimStatesFromSpawn(Seed, PropStates, SimStates);
+		InitSimStatesForSeed(Seed, PropCount, SimStates);
 		const sfc::ArenaMilli Arena = FSfcPropSim::ArenaToSimMilli(kDefaultArenaHalfExtents);
 
 		auto clock = sfc::FixedStepClock::Create(
@@ -35,39 +52,67 @@ namespace SfcSceneSimTest
 			USfcSimClockSubsystem::kSimTicksPerSecond);
 		if (!clock.has_value())
 		{
-			return false;
+			return Result;
 		}
 
-		int32 ticks_completed = 0;
-		while (ticks_completed < kSimTicks)
+		sfc::CaptureTrigger Trigger;
+		Trigger.Reset(6);
+
+		sfc::WallBudgetRunCallbacks Callbacks;
+		Callbacks.on_tick = [&](uint64_t TickIndex)
 		{
-			uint64 DeltaMicroseconds = 16'667;
-			if (bHitchAtTick1000 && (ticks_completed + 1) == 1000)
+			FSfcPropSim::StepSimTick(SimStates, Arena);
+			const uint64 Hash = FSfcPropSim::HashSimStates(SimStates);
+			Result.PerTickHashes.Add(Hash);
+			if (TickIndex == 600)
 			{
-				DeltaMicroseconds = 200'000;
+				Result.HashAtTick600 = Hash;
 			}
-
-			const sfc::FixedStepClock::AdvanceResult Advance = clock->Advance(DeltaMicroseconds);
-			for (uint64 step = 0; step < Advance.ticks_ready && ticks_completed < kSimTicks; ++step)
+			if (TickIndex == static_cast<uint64_t>(kSimTicks))
 			{
-				FSfcPropSim::StepSimTick(SimStates, Arena);
-				++ticks_completed;
-				OutPerTickHashes.Add(FSfcPropSim::HashSimStates(SimStates));
+				Result.HashAtTick3600 = Hash;
 			}
-		}
+			if (bRecordCaptures)
+			{
+				const std::optional<sfc::CaptureStamp> Stamp = Trigger.OnSimTick(TickIndex);
+				if (Stamp.has_value())
+				{
+					FSfcCaptureStamp Record;
+					Record.Seq = static_cast<int64>(Stamp->seq);
+					Record.TickIndex = static_cast<int64>(Stamp->tick_index);
+					Result.CaptureHistory.Add(Record);
+				}
+			}
+		};
 
-		return OutPerTickHashes.Num() == kSimTicks;
+		const sfc::WallBudgetRunResult BudgetResult =
+			sfc::RunWallSchedule(*clock, FrameDeltasUs, Callbacks);
+		Result.TickCount = BudgetResult.ticks;
+		Result.MicrosecondsFed = BudgetResult.microseconds_fed;
+		return Result;
+	}
+
+	inline WallSimRunResult RunSimSixtySecondWallBudget(uint64 Seed, int32 PropCount, bool bHitch)
+	{
+		const std::vector<uint64_t> Base = sfc::BuildAlternatingWallSchedule(sfc::kSixtySecondWallBudgetUs);
+		const std::vector<uint64_t> Schedule =
+			bHitch ? sfc::BuildHitchWallSchedule(Base) : Base;
+		return RunSimWallSchedule(Seed, PropCount, Schedule, true);
+	}
+
+	inline WallSimRunResult RunSimFpsWallBudget(uint64 Seed, int32 PropCount, uint64 FramesPerSecond)
+	{
+		const std::vector<uint64_t> Schedule =
+			sfc::BuildFpsWallSchedule(sfc::kSixtySecondWallBudgetUs, FramesPerSecond);
+		return RunSimWallSchedule(Seed, PropCount, Schedule, false);
 	}
 
 	inline bool RunPerTickHashesDirect(uint64 Seed, int32 PropCount, TArray<uint64>& OutPerTickHashes)
 	{
 		OutPerTickHashes.Reset();
 
-		TArray<FSfcPropState> PropStates;
-		FSfcPropSpawn::BuildStates(Seed, PropCount, kDefaultArenaHalfExtents, PropStates);
-
 		TArray<sfc::PropSimState> SimStates;
-		FSfcPropSim::BuildSimStatesFromSpawn(Seed, PropStates, SimStates);
+		InitSimStatesForSeed(Seed, PropCount, SimStates);
 		const sfc::ArenaMilli Arena = FSfcPropSim::ArenaToSimMilli(kDefaultArenaHalfExtents);
 
 		for (int32 tick = 0; tick < kSimTicks; ++tick)
@@ -88,6 +133,10 @@ namespace SfcSceneSimTest
 			{
 				return Index + 1;
 			}
+		}
+		if (A.Num() != B.Num())
+		{
+			return FMath::Min(A.Num(), B.Num()) + 1;
 		}
 		return -1;
 	}

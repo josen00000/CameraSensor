@@ -101,6 +101,19 @@ void ASeededPropSpawner::StepSim()
 
 	for (int32 Index = 0; Index < SimStates.Num(); ++Index)
 	{
+		if (sfc::ClampPropInsideArena(SimStates[Index], ArenaMilli))
+		{
+			const int32 PropId = SimStates[Index].id;
+			if (!ClampWarnedPropIds.Contains(PropId))
+			{
+				ClampWarnedPropIds.Add(PropId);
+				UE_LOG(
+					LogStallFreeCapture,
+					Warning,
+					TEXT("Prop id=%d left arena during sim; clamped to bounds."),
+					PropId);
+			}
+		}
 		FSfcPropSim::SyncVisualStateFromSim(SimStates[Index], PropStates[Index]);
 	}
 

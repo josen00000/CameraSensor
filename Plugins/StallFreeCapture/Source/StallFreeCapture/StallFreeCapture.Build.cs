@@ -26,6 +26,11 @@ public class StallFreeCapture : ModuleRules
 			}
 		);
 
+		if (Target.bBuildEditor)
+		{
+			PrivateDependencyModuleNames.Add("UnrealEd");
+		}
+
 		string SfcCoreDir = Path.GetFullPath(Path.Combine(ModuleDirectory, "..", "..", "ThirdParty", "sfc_core"));
 		PublicSystemIncludePaths.Add(Path.Combine(SfcCoreDir, "include"));
 
@@ -33,13 +38,15 @@ public class StallFreeCapture : ModuleRules
 		string Preset = Target.Configuration == UnrealTargetConfiguration.Debug ? "debug" : "release";
 		string LibFileName = Target.Platform == UnrealTargetPlatform.Win64 ? "sfc_core.lib" : "libsfc_core.a";
 		string BuildDir = Path.Combine(SfcCoreDir, "build", Preset);
-		string LibPath = FindLibrary(BuildDir, LibFileName);
-		if (LibPath == null)
+
+		if (!Directory.Exists(BuildDir))
 		{
-			BuildLibrary(SfcCoreDir, Preset);
-			LibPath = FindLibrary(BuildDir, LibFileName);
+			RunCMake(SfcCoreDir, "cmake", "--preset", Preset);
 		}
 
+		RunCMake(SfcCoreDir, "cmake", "--build", "--preset", Preset);
+
+		string LibPath = FindLibrary(BuildDir, LibFileName);
 		if (LibPath == null)
 		{
 			throw new System.InvalidOperationException(
@@ -66,12 +73,6 @@ public class StallFreeCapture : ModuleRules
 		}
 
 		return null;
-	}
-
-	private static void BuildLibrary(string SfcCoreDir, string Preset)
-	{
-		RunCMake(SfcCoreDir, "cmake", "--preset", Preset);
-		RunCMake(SfcCoreDir, "cmake", "--build", "--preset", Preset);
 	}
 
 	private static void RunCMake(string WorkingDirectory, params string[] Arguments)

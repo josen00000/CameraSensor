@@ -43,27 +43,24 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FSfcSceneHitchTest::RunTest(const FString& Parameters)
 {
-	TArray<uint64> DirectHashes;
-	TestTrue(
-		TEXT("Direct run produced 3600 hashes"),
-		SfcSceneSimTest::RunPerTickHashesDirect(7, SfcSceneSimTest::kDefaultPropCount, DirectHashes));
+	const SfcSceneSimTest::WallSimRunResult NoHitch =
+		SfcSceneSimTest::RunSimSixtySecondWallBudget(7, SfcSceneSimTest::kDefaultPropCount, false);
+	const SfcSceneSimTest::WallSimRunResult WithHitch =
+		SfcSceneSimTest::RunSimSixtySecondWallBudget(7, SfcSceneSimTest::kDefaultPropCount, true);
 
-	TArray<uint64> HitchHashes;
-	const bool bHitchOk = SfcSceneSimTest::RunPerTickHashes(
-		7,
-		SfcSceneSimTest::kDefaultPropCount,
-		HitchHashes,
-		true);
-	TestTrue(TEXT("Hitch run produced 3600 hashes"), bHitchOk);
+	TestEqual(TEXT("No-hitch wall budget feeds 60s"), NoHitch.MicrosecondsFed, sfc::kSixtySecondWallBudgetUs);
+	TestEqual(TEXT("Hitch wall budget feeds 60s"), WithHitch.MicrosecondsFed, sfc::kSixtySecondWallBudgetUs);
+	TestEqual(TEXT("No-hitch produces exactly 3600 ticks"), NoHitch.TickCount, static_cast<uint64>(SfcSceneSimTest::kSimTicks));
+	TestEqual(TEXT("Hitch produces exactly 3600 ticks"), WithHitch.TickCount, static_cast<uint64>(SfcSceneSimTest::kSimTicks));
 
-	if (DirectHashes.Num() == SfcSceneSimTest::kSimTicks && HitchHashes.Num() == SfcSceneSimTest::kSimTicks)
+	TestEqual(TEXT("Tick-3600 hash matches between hitch and no-hitch runs"), NoHitch.HashAtTick3600, WithHitch.HashAtTick3600);
+
+	TestEqual(TEXT("Capture trigger count"), NoHitch.CaptureHistory.Num(), 600);
+	TestEqual(TEXT("Hitch capture list length matches"), WithHitch.CaptureHistory.Num(), NoHitch.CaptureHistory.Num());
+	for (int32 Index = 0; Index < FMath::Min(NoHitch.CaptureHistory.Num(), WithHitch.CaptureHistory.Num()); ++Index)
 	{
-		const int32 Mismatch = SfcSceneSimTest::FindFirstMismatchingTick(DirectHashes, HitchHashes);
-		TestEqual(TEXT("Tick-3600 hash matches between hitch and no-hitch runs"), Mismatch, -1);
-		if (Mismatch != -1)
-		{
-			AddError(FString::Printf(TEXT("First mismatching tick: %d"), Mismatch));
-		}
+		TestEqual(FString::Printf(TEXT("Capture seq at index %d"), Index), WithHitch.CaptureHistory[Index].Seq, NoHitch.CaptureHistory[Index].Seq);
+		TestEqual(FString::Printf(TEXT("Capture tick at index %d"), Index), WithHitch.CaptureHistory[Index].TickIndex, NoHitch.CaptureHistory[Index].TickIndex);
 	}
 
 	return true;

@@ -2,55 +2,10 @@
 
 #include "Misc/AutomationTest.h"
 #include "SfcCaptureTypes.h"
-#include "SfcSimClockSubsystem.h"
+#include "SfcSceneSimTestCommon.h"
 #include "sfc/capture_trigger.h"
-#include "sfc/fixed_step_clock.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
-
-namespace
-{
-	constexpr int32 kSimTicks = 3600;
-
-	TArray<FSfcCaptureStamp> RunCaptureHistory(bool bWithHitch)
-	{
-		TArray<FSfcCaptureStamp> History;
-
-		sfc::CaptureTrigger Trigger;
-		Trigger.Reset(6);
-
-		auto clock = sfc::FixedStepClock::Create(
-			USfcSimClockSubsystem::kSimPeriodMicroseconds,
-			USfcSimClockSubsystem::kSimTicksPerSecond);
-		uint64 sim_ticks = 0;
-		while (sim_ticks < kSimTicks)
-		{
-			uint64 delta_us = 16'667;
-			if (bWithHitch && sim_ticks == 999)
-			{
-				delta_us = 200'000;
-			}
-			const auto advance = clock->Advance(delta_us);
-			for (uint64 step = 0; step < advance.ticks_ready; ++step)
-			{
-				++sim_ticks;
-				const std::optional<sfc::CaptureStamp> stamp = Trigger.OnSimTick(sim_ticks);
-				if (stamp.has_value())
-				{
-					FSfcCaptureStamp Record;
-					Record.Seq = stamp->seq;
-					Record.TickIndex = stamp->tick_index;
-					History.Add(Record);
-				}
-				if (sim_ticks >= kSimTicks)
-				{
-					break;
-				}
-			}
-		}
-		return History;
-	}
-}
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FSfcSceneCaptureTriggerTest,
@@ -59,23 +14,26 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FSfcSceneCaptureTriggerTest::RunTest(const FString& Parameters)
 {
-	const TArray<FSfcCaptureStamp> NoHitch = RunCaptureHistory(false);
-	const TArray<FSfcCaptureStamp> WithHitch = RunCaptureHistory(true);
+	const SfcSceneSimTest::WallSimRunResult NoHitch =
+		SfcSceneSimTest::RunSimSixtySecondWallBudget(7, SfcSceneSimTest::kDefaultPropCount, false);
+	const SfcSceneSimTest::WallSimRunResult WithHitch =
+		SfcSceneSimTest::RunSimSixtySecondWallBudget(7, SfcSceneSimTest::kDefaultPropCount, true);
 
-	TestEqual(TEXT("Capture trigger count over 3600 ticks"), NoHitch.Num(), 600);
-	if (NoHitch.Num() > 0)
+	TestEqual(TEXT("Wall budget produces exactly 3600 ticks"), NoHitch.TickCount, static_cast<uint64>(SfcSceneSimTest::kSimTicks));
+	TestEqual(TEXT("Capture trigger count over 3600 ticks"), NoHitch.CaptureHistory.Num(), 600);
+	if (NoHitch.CaptureHistory.Num() > 0)
 	{
-		TestEqual(TEXT("First capture seq is 0"), NoHitch[0].Seq, 0ull);
-		TestEqual(TEXT("First capture tick is 6"), NoHitch[0].TickIndex, 6ull);
-		TestEqual(TEXT("Last capture seq is 599"), NoHitch.Last().Seq, 599ull);
-		TestEqual(TEXT("Last capture tick is 3600"), NoHitch.Last().TickIndex, 3600ull);
+		TestEqual(TEXT("First capture seq is 0"), NoHitch.CaptureHistory[0].Seq, 0ll);
+		TestEqual(TEXT("First capture tick is 6"), NoHitch.CaptureHistory[0].TickIndex, 6ll);
+		TestEqual(TEXT("Last capture seq is 599"), NoHitch.CaptureHistory.Last().Seq, 599ll);
+		TestEqual(TEXT("Last capture tick is 3600"), NoHitch.CaptureHistory.Last().TickIndex, 3600ll);
 	}
 
-	TestEqual(TEXT("Hitch capture list length matches"), WithHitch.Num(), NoHitch.Num());
-	for (int32 Index = 0; Index < FMath::Min(NoHitch.Num(), WithHitch.Num()); ++Index)
+	TestEqual(TEXT("Hitch capture list length matches"), WithHitch.CaptureHistory.Num(), NoHitch.CaptureHistory.Num());
+	for (int32 Index = 0; Index < FMath::Min(NoHitch.CaptureHistory.Num(), WithHitch.CaptureHistory.Num()); ++Index)
 	{
-		TestEqual(FString::Printf(TEXT("Capture seq at index %d"), Index), WithHitch[Index].Seq, NoHitch[Index].Seq);
-		TestEqual(FString::Printf(TEXT("Capture tick at index %d"), Index), WithHitch[Index].TickIndex, NoHitch[Index].TickIndex);
+		TestEqual(FString::Printf(TEXT("Capture seq at index %d"), Index), WithHitch.CaptureHistory[Index].Seq, NoHitch.CaptureHistory[Index].Seq);
+		TestEqual(FString::Printf(TEXT("Capture tick at index %d"), Index), WithHitch.CaptureHistory[Index].TickIndex, NoHitch.CaptureHistory[Index].TickIndex);
 	}
 
 	bool bClamped = false;

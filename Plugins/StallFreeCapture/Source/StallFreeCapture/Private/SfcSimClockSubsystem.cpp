@@ -21,6 +21,7 @@ void USfcSimClockSubsystem::ResetSimulationClock()
 {
 	SimClock = sfc::FixedStepClock::Create(kSimPeriodMicroseconds, kSimTicksPerSecond);
 	SimTickIndex = 0;
+	TickRemainderMicroseconds = 0.0;
 	CaptureHistory.Reset();
 	ConfigureCaptureTrigger();
 }
@@ -60,9 +61,18 @@ void USfcSimClockSubsystem::Tick(float DeltaTime)
 		return;
 	}
 
-	const uint64 DeltaMicroseconds =
-		static_cast<uint64>(FMath::Max(0.0f, DeltaTime) * 1'000'000.0f);
-	AdvanceRealTimeMicroseconds(DeltaMicroseconds);
+	const double DeltaMicroseconds =
+		static_cast<double>(FMath::Max(0.0f, DeltaTime)) * 1'000'000.0;
+	uint64 WholeMicroseconds = static_cast<uint64>(DeltaMicroseconds);
+	TickRemainderMicroseconds += DeltaMicroseconds - static_cast<double>(WholeMicroseconds);
+	if (TickRemainderMicroseconds >= 1.0)
+	{
+		const uint64 Carry = static_cast<uint64>(TickRemainderMicroseconds);
+		WholeMicroseconds += Carry;
+		TickRemainderMicroseconds -= static_cast<double>(Carry);
+	}
+
+	AdvanceRealTimeMicroseconds(WholeMicroseconds);
 }
 
 TStatId USfcSimClockSubsystem::GetStatId() const
@@ -100,8 +110,8 @@ void USfcSimClockSubsystem::ConsumeSimTicks(uint64 TickCount)
 			OnCaptureTick.Broadcast(Stamp->seq, Stamp->tick_index);
 
 			FSfcCaptureStamp Record;
-			Record.Seq = Stamp->seq;
-			Record.TickIndex = Stamp->tick_index;
+			Record.Seq = static_cast<int64>(Stamp->seq);
+			Record.TickIndex = static_cast<int64>(Stamp->tick_index);
 			CaptureHistory.Add(Record);
 		}
 	}
