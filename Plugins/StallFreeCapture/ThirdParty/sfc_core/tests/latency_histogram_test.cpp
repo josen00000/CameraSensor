@@ -81,19 +81,8 @@ TEST(LatencyHistogramTest, PercentilesWithinOneBucketWidth) {
     histogram.Record(sample);
   }
 
-  constexpr uint64_t kP50Reference = 2584;
-  constexpr uint64_t kP50Reported = 2458;
-  constexpr uint64_t kP50Tolerance = 704;
-
-  constexpr uint64_t kP99Reference = 9'227'465;
-  constexpr uint64_t kP99Reported = 7'773'650;
-  constexpr uint64_t kP99Tolerance = 2'226'351;
-
-  EXPECT_EQ(histogram.Percentile(50.0), kP50Reported);
-  EXPECT_LE(kP50Reference - kP50Reported, kP50Tolerance);
-
-  EXPECT_EQ(histogram.Percentile(99.0), kP99Reported);
-  EXPECT_LE(kP99Reference - kP99Reported, kP99Tolerance);
+  EXPECT_EQ(histogram.Percentile(50.0), 2458u);
+  EXPECT_EQ(histogram.Percentile(99.0), 7'773'650u);
 }
 
 TEST(LatencyHistogramTest, NanPercentileReturnsZero) {
@@ -107,15 +96,37 @@ TEST(LatencyHistogramTest, ConcurrentRecordCountWithReaders) {
   constexpr int kThreads = 4;
   constexpr int kRecordsPerThread = 1'000'000;
 
-  std::atomic<bool> writers_done{false};
-  std::thread reader([&histogram, &writers_done]() {
-    while (!writers_done.load(std::memory_order_acquire)) {
-      histogram.Count();
-      histogram.Percentile(50.0);
-      histogram.Percentile(99.0);
+  const auto percentile_fifty_is_valid = [](uint64_t value) {
+    if (value == 0) {
+      return true;
     }
-    histogram.Count();
-    histogram.Percentile(50.0);
+    if (value == sfc::LatencyHistogram::kMaxRepresentableUs + 1) {
+      return true;
+    }
+    for (size_t i = 0; i < sfc::LatencyHistogram::kNumBuckets; ++i) {
+      if (value == sfc::LatencyHistogram::BucketLowerBound(i)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  std::atomic<bool> writers_done{false};
+  std::thread reader([&histogram, &writers_done, &percentile_fifty_is_valid]() {
+    uint64_t previous_count = 0;
+    auto poll = [&]() {
+      const uint64_t count = histogram.Count();
+      EXPECT_GE(count, previous_count);
+      previous_count = count;
+
+      const uint64_t p50 = histogram.Percentile(50.0);
+      EXPECT_TRUE(percentile_fifty_is_valid(p50));
+    };
+
+    while (!writers_done.load(std::memory_order_acquire)) {
+      poll();
+    }
+    poll();
   });
 
   std::vector<std::thread> writers;

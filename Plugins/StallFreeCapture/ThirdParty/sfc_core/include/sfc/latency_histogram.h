@@ -21,8 +21,8 @@ namespace sfc {
 // Lower bounds follow a geometric progression: lower(i) ≈ 10^(7·i/64) µs (rounded
 // to integer, strictly increasing). Relative bucket width (upper − lower) / lower
 // is about 29% on average for i ≥ 10; the widest low decade step is 33% at
-// [12, 16) µs. Buckets 0–9 (1–10 µs) each have width 1 (0% relative error from
-// width alone).
+// [12, 16) µs. Buckets 0-8 (1-9 µs) each have width 1 (exact); bucket 9 is
+// [10, 12) (width 2, 20%).
 //
 // Concurrency
 // -----------
