@@ -48,11 +48,29 @@ uint64 FSfcPropSim::HashSimStates(const TArray<sfc::PropSimState>& SimStates)
 	return sfc::HashPropSimStates(SimStates.GetData(), SimStates.Num());
 }
 
-void FSfcPropSim::StepSimTick(TArray<sfc::PropSimState>& SimStates, const sfc::ArenaMilli& Arena)
+void FSfcPropSim::StepSimTick(
+	TArray<sfc::PropSimState>& SimStates,
+	const sfc::ArenaMilli& Arena,
+	TArray<int32>* OutStepClampedPropIds)
 {
 	if (SimStates.IsEmpty())
 	{
 		return;
 	}
-	sfc::StepAllPropSim(SimStates.GetData(), SimStates.Num(), Arena);
+
+	if (OutStepClampedPropIds != nullptr)
+	{
+		OutStepClampedPropIds->Reset();
+	}
+
+	for (sfc::PropSimState& SimState : SimStates)
+	{
+		if (sfc::StepPropSim(SimState, Arena))
+		{
+			if (OutStepClampedPropIds != nullptr)
+			{
+				OutStepClampedPropIds->Add(SimState.id);
+			}
+		}
+	}
 }

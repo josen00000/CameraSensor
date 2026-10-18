@@ -48,8 +48,14 @@ bool FSfcSceneHitchTest::RunTest(const FString& Parameters)
 	const SfcSceneSimTest::WallSimRunResult WithHitch =
 		SfcSceneSimTest::RunSimSixtySecondWallBudget(7, SfcSceneSimTest::kDefaultPropCount, true);
 
-	TestEqual(TEXT("No-hitch wall budget feeds 60s"), NoHitch.MicrosecondsFed, sfc::kSixtySecondWallBudgetUs);
-	TestEqual(TEXT("Hitch wall budget feeds 60s"), WithHitch.MicrosecondsFed, sfc::kSixtySecondWallBudgetUs);
+	TestEqual(
+		TEXT("No-hitch wall budget feeds 60s"),
+		NoHitch.MicrosecondsFed,
+		static_cast<uint64>(sfc::kSixtySecondWallBudgetUs));
+	TestEqual(
+		TEXT("Hitch wall budget feeds 60s"),
+		WithHitch.MicrosecondsFed,
+		static_cast<uint64>(sfc::kSixtySecondWallBudgetUs));
 	TestEqual(TEXT("No-hitch produces exactly 3600 ticks"), NoHitch.TickCount, static_cast<uint64>(SfcSceneSimTest::kSimTicks));
 	TestEqual(TEXT("Hitch produces exactly 3600 ticks"), WithHitch.TickCount, static_cast<uint64>(SfcSceneSimTest::kSimTicks));
 

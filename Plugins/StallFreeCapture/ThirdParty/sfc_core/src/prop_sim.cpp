@@ -86,7 +86,8 @@ bool ClampPropInsideArena(PropSimState& state, const ArenaMilli& arena) {
   return clamped;
 }
 
-void StepPropSim(PropSimState& state, const ArenaMilli& arena) {
+bool StepPropSim(PropSimState& state, const ArenaMilli& arena) {
+  bool hard_clamped = false;
   const int32_t limits[3] = {arena.half_x, arena.half_y, arena.half_z};
   for (int axis = 0; axis < 3; ++axis) {
     const int32_t min_p = -limits[axis];
@@ -106,13 +107,16 @@ void StepPropSim(PropSimState& state, const ArenaMilli& arena) {
     if (position > max_p) {
       position = max_p;
       state.vel_milli_per_tick[axis] = 0;
+      hard_clamped = true;
     } else if (position < min_p) {
       position = min_p;
       state.vel_milli_per_tick[axis] = 0;
+      hard_clamped = true;
     }
 
     state.pos_milli[axis] = static_cast<int32_t>(position);
   }
+  return hard_clamped;
 }
 
 void StepAllPropSim(PropSimState* states, int32_t count, const ArenaMilli& arena) {

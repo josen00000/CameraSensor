@@ -104,6 +104,31 @@ void USfcSimClockSubsystem::ConsumeSimTicks(uint64 TickCount)
 		}
 
 		++SimTickIndex;
+
+		if (SimTickIndex == 600)
+		{
+			uint64 LogSeed = 0;
+			uint64 Tick600Hash = 0;
+			for (ASeededPropSpawner* Spawner : RegisteredSpawners)
+			{
+				if (!IsValid(Spawner))
+				{
+					continue;
+				}
+				if (LogSeed == 0)
+				{
+					LogSeed = Spawner->Seed;
+				}
+				Tick600Hash ^= Spawner->HashState();
+			}
+			UE_LOG(
+				LogStallFreeCapture,
+				Log,
+				TEXT("SFC sim seed=%llu tick-600 hash=%llu"),
+				LogSeed,
+				Tick600Hash);
+		}
+
 		const std::optional<sfc::CaptureStamp> Stamp = CaptureTrigger.OnSimTick(SimTickIndex);
 		if (Stamp.has_value())
 		{

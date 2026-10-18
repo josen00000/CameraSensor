@@ -33,8 +33,8 @@ void InitSimVelocities(uint64_t seed, PropSimState* states, int32_t count);
 // Clamp any position outside the arena; returns true if clamping occurred.
 bool ClampPropInsideArena(PropSimState& state, const ArenaMilli& arena);
 
-// One fixed 60 Hz tick of axis-aligned wall bounce.
-void StepPropSim(PropSimState& state, const ArenaMilli& arena);
+// One fixed 60 Hz tick of axis-aligned wall bounce. Returns true if a hard arena clamp was applied.
+bool StepPropSim(PropSimState& state, const ArenaMilli& arena);
 
 void StepAllPropSim(PropSimState* states, int32_t count, const ArenaMilli& arena);
 

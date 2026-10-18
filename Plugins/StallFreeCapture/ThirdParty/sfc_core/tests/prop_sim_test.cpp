@@ -114,6 +114,20 @@ TEST(PropSimTest, ClampDetectsOutsideArena) {
   EXPECT_EQ(state.pos_milli[0], arena.half_x);
 }
 
+TEST(PropSimTest, StepPropSimReportsHardArenaClamp) {
+  const sfc::ArenaMilli arena = DefaultArena();
+  sfc::PropSimState state{};
+  state.id = 42;
+  // Bounce reflection overshoots the far wall; the hard clamp at the end of StepPropSim applies.
+  state.pos_milli[0] = 3'000'001;
+  EXPECT_TRUE(sfc::StepPropSim(state, arena));
+  EXPECT_EQ(state.pos_milli[0], -arena.half_x);
+  EXPECT_EQ(state.vel_milli_per_tick[0], 0);
+
+  sfc::PropSimState inside = MakeTwoProps()[0];
+  EXPECT_FALSE(sfc::StepPropSim(inside, arena));
+}
+
 TEST(PropSimTest, HitchDoesNotChangeTick3600Hash) {
   const std::vector<uint64_t> base = sfc::BuildAlternatingWallSchedule(sfc::kSixtySecondWallBudgetUs);
   const std::vector<uint64_t> hitch = sfc::BuildHitchWallSchedule(base);

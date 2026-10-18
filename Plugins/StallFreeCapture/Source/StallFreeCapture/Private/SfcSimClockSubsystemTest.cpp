@@ -17,18 +17,21 @@ bool FSfcSimClockSubsystemCaptureTest::RunTest(const FString& Parameters)
 {
 	if (!GEditor)
 	{
+		AddError(TEXT("GEditor is null; SimClockCapture requires an editor context."));
 		return false;
 	}
 
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
+		AddError(TEXT("Editor world is null; SimClockCapture requires a valid UWorld."));
 		return false;
 	}
 
 	USfcSimClockSubsystem* SimClock = World->GetSubsystem<USfcSimClockSubsystem>();
 	if (!SimClock)
 	{
+		AddError(TEXT("USfcSimClockSubsystem is null on the editor world."));
 		return false;
 	}
 
@@ -38,7 +41,10 @@ bool FSfcSimClockSubsystemCaptureTest::RunTest(const FString& Parameters)
 		EAutomationExpectedErrorFlags::Contains,
 		1);
 	SimClock->ResetSimulationClock();
-	TestEqual(TEXT("CaptureEveryNTicks clamped to 1 on reset"), SimClock->CaptureEveryNTicks, 1u);
+	TestEqual(
+		TEXT("CaptureEveryNTicks clamped to 1 on reset"),
+		static_cast<int32>(SimClock->CaptureEveryNTicks),
+		static_cast<int32>(1));
 
 	SimClock->CaptureEveryNTicks = 6;
 	SimClock->ResetSimulationClock();

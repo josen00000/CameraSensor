@@ -21,5 +21,8 @@ public:
 
 	static uint64 HashSimStates(const TArray<sfc::PropSimState>& SimStates);
 
-	static void StepSimTick(TArray<sfc::PropSimState>& SimStates, const sfc::ArenaMilli& Arena);
+	static void StepSimTick(
+		TArray<sfc::PropSimState>& SimStates,
+		const sfc::ArenaMilli& Arena,
+		TArray<int32>* OutStepClampedPropIds = nullptr);
 };
