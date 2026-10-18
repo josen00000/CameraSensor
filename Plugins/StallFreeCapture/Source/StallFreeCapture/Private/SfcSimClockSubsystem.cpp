@@ -3,6 +3,7 @@
 #include "SfcSimClockSubsystem.h"
 
 #include "SeededPropSpawner.h"
+#include "StallFreeCapture.h"
 
 void USfcSimClockSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -20,6 +21,23 @@ void USfcSimClockSubsystem::ResetSimulationClock()
 {
 	SimClock = sfc::FixedStepClock::Create(kSimPeriodMicroseconds, kSimTicksPerSecond);
 	SimTickIndex = 0;
+	CaptureHistory.Reset();
+	ConfigureCaptureTrigger();
+}
+
+void USfcSimClockSubsystem::ConfigureCaptureTrigger()
+{
+	bool bClamped = false;
+	const uint32 SafeEveryN = sfc::SanitizeCaptureEveryNTicks(CaptureEveryNTicks, bClamped);
+	if (bClamped)
+	{
+		UE_LOG(
+			LogStallFreeCapture,
+			Warning,
+			TEXT("CaptureEveryNTicks was 0; clamping to 1 (no zero-interval capture)."));
+		CaptureEveryNTicks = SafeEveryN;
+	}
+	CaptureTrigger.Reset(CaptureEveryNTicks);
 }
 
 void USfcSimClockSubsystem::RegisterSpawner(ASeededPropSpawner* Spawner)
@@ -76,5 +94,15 @@ void USfcSimClockSubsystem::ConsumeSimTicks(uint64 TickCount)
 		}
 
 		++SimTickIndex;
+		const std::optional<sfc::CaptureStamp> Stamp = CaptureTrigger.OnSimTick(SimTickIndex);
+		if (Stamp.has_value())
+		{
+			OnCaptureTick.Broadcast(Stamp->seq, Stamp->tick_index);
+
+			FSfcCaptureStamp Record;
+			Record.Seq = Stamp->seq;
+			Record.TickIndex = Stamp->tick_index;
+			CaptureHistory.Add(Record);
+		}
 	}
 }
