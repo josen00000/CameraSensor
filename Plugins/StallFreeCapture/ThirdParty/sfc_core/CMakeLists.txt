@@ -56,6 +56,7 @@ add_executable(sfc_core_tests
     tests/xxhash_test.cpp
     tests/fixed_step_clock_test.cpp
     tests/latency_histogram_test.cpp
+    tests/queue_contract_test.cpp
 )
 
 target_link_libraries(sfc_core_tests
