@@ -1,7 +1,12 @@
 #include "sfc/mutex_queue.h"
 
+#include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <future>
+#include <memory>
+#include <thread>
 
 #include <gtest/gtest.h>
 
@@ -182,5 +187,68 @@ TYPED_TEST(QueueContractTest, RejectRefusesPushAndKeepsDropCount) {
   sfc::PopResult<int> empty = queue.TryPop();
   EXPECT_EQ(empty.status, sfc::PopStatus::Empty);
   EXPECT_FALSE(empty.value.has_value());
+}
+
+TYPED_TEST(QueueContractTest, CloseWakesBlockedProducerWithinTwoSeconds) {
+  TypeParam queue(1, sfc::FullPolicy::Block);
+  ASSERT_EQ(queue.Push(1), sfc::PushStatus::Pushed);
+
+  std::promise<sfc::PushStatus> promise;
+  std::future<sfc::PushStatus> future = promise.get_future();
+  std::atomic<bool> entered{false};
+
+  std::thread producer([&queue, &promise, &entered] {
+    entered.store(true, std::memory_order_release);
+    promise.set_value(queue.Push(2));
+  });
+
+  struct CloseAndJoin {
+    TypeParam* queue;
+    std::thread* producer;
+    ~CloseAndJoin() {
+      queue->Close();
+      if (producer->joinable()) {
+        producer->join();
+      }
+    }
+  } guard{&queue, &producer};
+
+  while (!entered.load(std::memory_order_acquire)) {
+    std::this_thread::yield();
+  }
+  ASSERT_EQ(future.wait_for(std::chrono::milliseconds(50)), std::future_status::timeout);
+
+  queue.Close();
+  ASSERT_EQ(future.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+  EXPECT_EQ(future.get(), sfc::PushStatus::Closed);
+
+  sfc::PopResult<int> stored = queue.TryPop();
+  ASSERT_EQ(stored.status, sfc::PopStatus::Item);
+  EXPECT_EQ(stored.value, 1);
+
+  sfc::PopResult<int> closed = queue.TryPop();
+  EXPECT_EQ(closed.status, sfc::PopStatus::Closed);
+  EXPECT_FALSE(closed.value.has_value());
+}
+
+template <typename Queue>
+class MoveOnlyQueueContractTest : public ::testing::Test {};
+
+using MoveOnlyQueueTypes =
+    ::testing::Types<sfc::MutexBoundedQueue<std::unique_ptr<int>>>;
+TYPED_TEST_SUITE(MoveOnlyQueueContractTest, MoveOnlyQueueTypes);
+
+TYPED_TEST(MoveOnlyQueueContractTest, PushMovesPayloadAndPopYieldsIt) {
+  TypeParam queue(4, sfc::FullPolicy::Reject);
+
+  auto payload = std::make_unique<int>(42);
+  EXPECT_EQ(queue.Push(std::move(payload)), sfc::PushStatus::Pushed);
+  EXPECT_EQ(payload, nullptr);
+
+  auto result = queue.TryPop();
+  ASSERT_EQ(result.status, sfc::PopStatus::Item);
+  ASSERT_TRUE(result.value.has_value());
+  ASSERT_NE(*result.value, nullptr);
+  EXPECT_EQ(**result.value, 42);
 }
 
