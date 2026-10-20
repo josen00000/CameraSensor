@@ -11,6 +11,9 @@ add_library(sfc_core STATIC
     src/pcg32.cpp
     src/xxhash_wrapper.cpp
     src/fixed_step_clock.cpp
+    src/prop_sim.cpp
+    src/capture_trigger.cpp
+    src/wall_time_budget.cpp
     src/latency_histogram.cpp
 )
 
@@ -55,6 +58,9 @@ add_executable(sfc_core_tests
     tests/pcg32_test.cpp
     tests/xxhash_test.cpp
     tests/fixed_step_clock_test.cpp
+    tests/prop_sim_test.cpp
+    tests/capture_trigger_test.cpp
+    tests/wall_time_budget_test.cpp
     tests/latency_histogram_test.cpp
     tests/queue_contract_test.cpp
 )

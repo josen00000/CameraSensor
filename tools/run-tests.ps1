@@ -25,6 +25,9 @@
     instead of the sfc_core tests. Requires UnrealEditor-Cmd in PATH or UNREAL_ENGINE
     environment variable pointing to the engine root.
 
+.PARAMETER SceneHeadless
+    Runs all SFC.Scene.* Automation tests headlessly (-nullrhi). Implies -Unreal.
+
 .EXAMPLE
     ./tools/run-tests.ps1
     Run sfc_core smoke tests with default debug preset.
@@ -36,13 +39,27 @@
 .EXAMPLE
     ./tools/run-tests.ps1 -Unreal
     Run Unreal Engine Automation test StallFreeCapture.Version in headless mode.
+
+.EXAMPLE
+    ./tools/run-tests.ps1 -SceneHeadless
+    Run SFC.Scene.* Automation tests with -nullrhi (seeds, determinism, hitch, capture).
 #>
 
 param(
     [string]$Preset = "debug",
     [switch]$Clean,
-    [switch]$Unreal
+    [switch]$Unreal,
+    [switch]$SceneHeadless
 )
+
+if ($SceneHeadless) {
+    $Unreal = $true
+}
+
+$UnrealTestFilter = "StallFreeCapture.Version"
+if ($SceneHeadless) {
+    $UnrealTestFilter = "SFC.Scene."
+}
 
 # Capture errors but don't throw immediately so we can write reports
 $ErrorActionPreference = "Continue"
@@ -122,13 +139,13 @@ Error: CaptureSandbox.uproject not found at: $UProjectPath
     Write-Host "Project: $UProjectPath" -ForegroundColor Gray
     Write-Host "Report export: $ReportExportPath" -ForegroundColor Gray
     Write-Host ""
-    Write-Host "Running StallFreeCapture.Version test..." -ForegroundColor Cyan
+    Write-Host "Running Automation tests: $UnrealTestFilter ..." -ForegroundColor Cyan
 
     $TestStartTime = Get-Date
     
     # Run the test
     & $UnrealCmd $UProjectPath `
-        -ExecCmds="Automation RunTests StallFreeCapture.Version;Quit" `
+        -ExecCmds="Automation RunTests $UnrealTestFilter;Quit" `
         -nullrhi `
         -unattended `
         -nosplash `
@@ -201,7 +218,7 @@ Error: CaptureSandbox.uproject not found at: $UProjectPath
     $ReportContent = @"
 StallFreeCapture Unreal Automation Smoke Test Report
 Generated: $Timestamp
-Test: StallFreeCapture.Version
+Test: $UnrealTestFilter
 Mode: -nullrhi -unattended -nosplash
 Duration: $($TestDuration.TotalSeconds.ToString('F2'))s
 Unreal Exit Code: $UnrealExitCode
@@ -211,7 +228,7 @@ Result: $(if ($TestPassed) { "PASSED" } else { "FAILED" })
 $TestDetails
 
 Command:
-UnrealEditor-Cmd "$UProjectPath" -ExecCmds="Automation RunTests StallFreeCapture.Version;Quit" -nullrhi -unattended -nosplash -testexit="Automation Test Queue Empty" -ReportExportPath="$ReportExportPath" -log
+UnrealEditor-Cmd "$UProjectPath" -ExecCmds="Automation RunTests $UnrealTestFilter;Quit" -nullrhi -unattended -nosplash -testexit="Automation Test Queue Empty" -ReportExportPath="$ReportExportPath" -log
 
 Report export path: $ReportExportPath
 Index JSON: $IndexJsonPath
