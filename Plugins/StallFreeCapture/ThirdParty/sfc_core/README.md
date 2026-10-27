@@ -14,4 +14,19 @@ cmake --build --preset debug
 ctest --preset debug --output-on-failure
 ```
 
+### Sanitizer presets (Linux/macOS; not available on Windows)
+
+CI runs the full `ctest` suite under ThreadSanitizer and AddressSanitizer (+ UBSan via the `asan` preset). Locally, from this directory:
+
+```bash
+export TSAN_OPTIONS=halt_on_error=1
+export ASAN_OPTIONS=halt_on_error=1
+export UBSAN_OPTIONS=halt_on_error=1
+
+cmake --preset tsan && cmake --build --preset tsan && ctest --preset tsan --output-on-failure
+cmake --preset asan && cmake --build --preset asan && ctest --preset asan --output-on-failure
+```
+
+Long-running stress tests (for example lock-free ring stress from T24) may later be tagged with a GTest/ctest label such as `stress`; use `ctest -L stress` or `ctest -LE stress` to include or exclude them without changing the sanitizer presets.
+
 Third-party licenses: see `NOTICE` and `vendor/README.md`.
