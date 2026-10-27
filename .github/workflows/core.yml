@@ -64,3 +64,49 @@ jobs:
       - name: Run tests
         working-directory: Plugins/StallFreeCapture/ThirdParty/sfc_core
         run: ctest --preset debug --output-on-failure
+
+  # Full ctest suite under Clang sanitizers (all gtest_discover_tests targets).
+  # Future long-running ring stress tests may use a GTest/ctest LABEL (e.g. stress);
+  # filter with ctest -L stress or -LE stress without changing this job layout.
+  sanitizers:
+    name: ubuntu-latest - clang sanitizers
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [tsan, asan]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Clang
+        run: |
+          echo "CC=clang" >> $GITHUB_ENV
+          echo "CXX=clang++" >> $GITHUB_ENV
+
+      - name: Cache GoogleTest
+        uses: actions/cache@v4
+        with:
+          path: |
+            Plugins/StallFreeCapture/ThirdParty/sfc_core/build/*/_deps
+          key: ${{ runner.os }}-clang-sanitizer-${{ matrix.preset }}-gtest-${{ hashFiles('Plugins/StallFreeCapture/ThirdParty/sfc_core/CMakeLists.txt', 'Plugins/StallFreeCapture/ThirdParty/sfc_core/CMakePresets.json') }}
+          restore-keys: |
+            ${{ runner.os }}-clang-sanitizer-${{ matrix.preset }}-gtest-
+
+      - name: Configure CMake (${{ matrix.preset }})
+        working-directory: Plugins/StallFreeCapture/ThirdParty/sfc_core
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Build (${{ matrix.preset }})
+        working-directory: Plugins/StallFreeCapture/ThirdParty/sfc_core
+        run: cmake --build --preset ${{ matrix.preset }}
+
+      - name: Run tests (${{ matrix.preset }})
+        working-directory: Plugins/StallFreeCapture/ThirdParty/sfc_core
+        env:
+          TSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1
+        run: ctest --preset ${{ matrix.preset }} --output-on-failure
