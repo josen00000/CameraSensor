@@ -63,6 +63,13 @@ add_executable(sfc_core_tests
     tests/wall_time_budget_test.cpp
     tests/latency_histogram_test.cpp
     tests/queue_contract_test.cpp
+    tests/typed_contract_sample_test.cpp
+    tests/concurrency_helpers_test.cpp
+    tests/producer_stress_test.cpp
+)
+
+target_include_directories(sfc_core_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests
 )
 
 target_link_libraries(sfc_core_tests
