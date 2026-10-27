@@ -32,7 +32,7 @@ TEST(ConcurrencyHelpersTest, RunOnThreadsJoinsAfterWorkerException) {
           throw std::runtime_error("worker failure");
         }
       }),
-      "worker failure");
+      "worker 0: worker failure");
 
   EXPECT_EQ(joined_count.load(), 2);
 }
@@ -71,5 +71,37 @@ TEST(ConcurrencyHelpersTest, HangGuardCompletesFastBody) {
 
   EXPECT_EQ(result, sfc::test::HangGuardResult::Completed);
 }
+
+TEST(ConcurrencyHelpersTest, RunWithHangGuardOrFailReportsTimeout) {
+  EXPECT_NONFATAL_FAILURE(
+      sfc::test::RunWithHangGuardOrFail(
+          [](std::atomic<bool>& stop) {
+            while (!stop.load(std::memory_order_acquire)) {
+              std::this_thread::yield();
+            }
+          },
+          std::chrono::milliseconds(50)),
+      "hang guard timed out");
+}
+
+#ifndef _WIN32
+TEST(ConcurrencyHelpersDeathTest, AbortsNonCooperativeBodyAfterGrace) {
+  const auto started = std::chrono::steady_clock::now();
+  EXPECT_DEATH(
+      {
+        sfc::test::RunWithHangGuard(
+            [](std::atomic<bool>&) {
+              for (;;) {
+              }
+            },
+            std::chrono::milliseconds(100));
+      },
+      "non-cooperative timeout");
+  const auto elapsed =
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
+                                                            started);
+  EXPECT_LT(elapsed.count(), 5000);
+}
+#endif
 
 }  // namespace

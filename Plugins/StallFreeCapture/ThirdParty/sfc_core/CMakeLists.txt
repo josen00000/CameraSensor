@@ -88,4 +88,4 @@ else()
 endif()
 
 include(GoogleTest)
-gtest_discover_tests(sfc_core_tests)
+gtest_discover_tests(sfc_core_tests PROPERTIES TIMEOUT 60)

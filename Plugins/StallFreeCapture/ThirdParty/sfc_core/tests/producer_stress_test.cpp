@@ -12,6 +12,76 @@
 
 namespace {
 
+// Closes the queue when the hang guard sets `stop`, so producers blocked in Push wake.
+class CloseQueueWhenStopRequested {
+ public:
+  CloseQueueWhenStopRequested(std::atomic<bool>& stop,
+                              sfc::MutexBoundedQueue<int>& queue)
+      : stop_(stop), queue_(queue), watcher_([this] { WaitAndCloseOnStop(); }) {}
+
+  ~CloseQueueWhenStopRequested() {
+    shutdown_.store(true, std::memory_order_release);
+    if (watcher_.joinable()) {
+      watcher_.join();
+    }
+  }
+
+ private:
+  void WaitAndCloseOnStop() {
+    while (!shutdown_.load(std::memory_order_acquire) &&
+           !stop_.load(std::memory_order_acquire)) {
+      std::this_thread::yield();
+    }
+    if (stop_.load(std::memory_order_acquire)) {
+      queue_.Close();
+    }
+  }
+
+  std::atomic<bool>& stop_;
+  sfc::MutexBoundedQueue<int>& queue_;
+  std::atomic<bool> shutdown_{false};
+  std::thread watcher_;
+};
+
+struct CloseQueueOnThreadExit {
+  sfc::MutexBoundedQueue<int>& queue;
+
+  ~CloseQueueOnThreadExit() { queue.Close(); }
+};
+
+TEST(ProducerStressTest, CloseUnblocksProducersWhenConsumerExitsEarly) {
+  sfc::test::RunWithHangGuardOrFail([&](std::atomic<bool>& stop) {
+    sfc::MutexBoundedQueue<int> queue(4, sfc::FullPolicy::Block);
+    CloseQueueWhenStopRequested stop_closer{stop, queue};
+
+    EXPECT_EQ(queue.Push(1), sfc::PushStatus::Pushed);
+    EXPECT_EQ(queue.Push(2), sfc::PushStatus::Pushed);
+    EXPECT_EQ(queue.Push(3), sfc::PushStatus::Pushed);
+    EXPECT_EQ(queue.Push(4), sfc::PushStatus::Pushed);
+
+    std::atomic<bool> producer_finished{false};
+
+    std::thread consumer([&] {
+      CloseQueueOnThreadExit close_on_exit{queue};
+      return;
+    });
+
+    std::thread producer([&] {
+      EXPECT_EQ(queue.Push(5), sfc::PushStatus::Closed);
+      producer_finished.store(true, std::memory_order_release);
+    });
+
+    if (consumer.joinable()) {
+      consumer.join();
+    }
+    if (producer.joinable()) {
+      producer.join();
+    }
+
+    EXPECT_TRUE(producer_finished.load(std::memory_order_acquire));
+  });
+}
+
 TEST(ProducerStressTest, FourProducersOneConsumerEachItemOnce) {
   constexpr std::size_t kProducerCount = 4;
   constexpr int kItemsPerProducer = 250;
@@ -20,6 +90,7 @@ TEST(ProducerStressTest, FourProducersOneConsumerEachItemOnce) {
 
   sfc::test::RunWithHangGuardOrFail([&](std::atomic<bool>& stop) {
     sfc::MutexBoundedQueue<int> queue(32, sfc::FullPolicy::Block);
+    CloseQueueWhenStopRequested stop_closer{stop, queue};
 
     std::array<std::atomic<int>, kTotalItems> receive_counts{};
     for (std::atomic<int>& count : receive_counts) {
@@ -30,6 +101,7 @@ TEST(ProducerStressTest, FourProducersOneConsumerEachItemOnce) {
     std::atomic<bool> producers_finished{false};
 
     std::thread consumer([&] {
+      CloseQueueOnThreadExit close_on_exit{queue};
       while (true) {
         sfc::PopResult<int> result = queue.TryPop();
         if (result.status == sfc::PopStatus::Item) {

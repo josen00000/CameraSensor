@@ -17,7 +17,7 @@ namespace sfc::test {
 // worker before returning, including after exceptions or failed gtest assertions.
 inline void RunOnThreads(std::size_t worker_count,
                            const std::function<void(std::size_t)>& body) {
-  std::vector<std::thread> workers;
+  std::vector<std::jthread> workers;
   workers.reserve(worker_count);
 
   std::mutex error_mutex;
@@ -35,13 +35,15 @@ inline void RunOnThreads(std::size_t worker_count,
       try {
         body(index);
       } catch (const testing::internal::GoogleTestFailureException&) {
-        // ASSERT in the worker; captured below.
+        // ASSERT in the worker; captured below (no public gtest type for this).
       } catch (const std::exception& exception) {
         std::lock_guard<std::mutex> lock(error_mutex);
-        worker_errors.push_back(exception.what());
+        worker_errors.push_back(std::string("worker ") + std::to_string(index) + ": " +
+                                exception.what());
       } catch (...) {
         std::lock_guard<std::mutex> lock(error_mutex);
-        worker_errors.push_back("unknown exception in worker");
+        worker_errors.push_back(std::string("worker ") + std::to_string(index) +
+                                ": unknown exception");
       }
 
       if (failures.size() > 0) {
@@ -55,11 +57,7 @@ inline void RunOnThreads(std::size_t worker_count,
     });
   }
 
-  for (std::thread& worker : workers) {
-    if (worker.joinable()) {
-      worker.join();
-    }
-  }
+  workers.clear();
 
   for (const std::string& message : captured_failure_messages) {
     ADD_FAILURE() << message;

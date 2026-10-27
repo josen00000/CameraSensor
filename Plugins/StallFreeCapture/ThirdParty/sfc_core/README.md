@@ -58,3 +58,5 @@ const auto result = sfc::test::RunWithHangGuard(
     },
     std::chrono::seconds(2));
 ```
+
+Bodies that ignore `stop` are terminated with `std::abort()` after a short join grace (see `kHangGuardJoinGrace` in `hang_guard.h`). `RunWithHangGuardOrFail` records a gtest failure on cooperative timeout only; **`ASSERT` inside a hang-guard body is not replayed for `EXPECT_NONFATAL_FAILURE` on the caller thread** (unlike `RunOnThreads`, which re-reports worker `EXPECT` failures after join).
