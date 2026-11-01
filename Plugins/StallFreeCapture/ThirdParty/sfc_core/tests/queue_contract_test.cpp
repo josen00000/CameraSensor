@@ -1,12 +1,16 @@
 #include "sfc/mutex_queue.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <future>
 #include <memory>
+#include <mutex>
+#include <numeric>
 #include <thread>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -229,6 +233,134 @@ TYPED_TEST(QueueContractTest, CloseWakesBlockedProducerWithinTwoSeconds) {
   sfc::PopResult<int> closed = queue.TryPop();
   EXPECT_EQ(closed.status, sfc::PopStatus::Closed);
   EXPECT_FALSE(closed.value.has_value());
+}
+
+TYPED_TEST(QueueContractTest, PopUnblocksBlockedProducerWithinTwoSeconds) {
+  TypeParam queue(1, sfc::FullPolicy::Block);
+  ASSERT_EQ(queue.Push(1), sfc::PushStatus::Pushed);
+
+  std::promise<sfc::PushStatus> promise;
+  std::future<sfc::PushStatus> future = promise.get_future();
+  std::atomic<bool> entered{false};
+
+  std::thread producer([&queue, &promise, &entered] {
+    entered.store(true, std::memory_order_release);
+    promise.set_value(queue.Push(2));
+  });
+
+  struct CloseAndJoin {
+    TypeParam* queue;
+    std::thread* producer;
+    ~CloseAndJoin() {
+      queue->Close();
+      if (producer->joinable()) {
+        producer->join();
+      }
+    }
+  } guard{&queue, &producer};
+
+  while (!entered.load(std::memory_order_acquire)) {
+    std::this_thread::yield();
+  }
+  ASSERT_EQ(future.wait_for(std::chrono::milliseconds(50)), std::future_status::timeout);
+
+  sfc::PopResult<int> first = queue.TryPop();
+  ASSERT_EQ(first.status, sfc::PopStatus::Item);
+  EXPECT_EQ(first.value, 1);
+
+  ASSERT_EQ(future.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+  EXPECT_EQ(future.get(), sfc::PushStatus::Pushed);
+
+  sfc::PopResult<int> second = queue.TryPop();
+  ASSERT_EQ(second.status, sfc::PopStatus::Item);
+  EXPECT_EQ(second.value, 2);
+}
+
+TYPED_TEST(QueueContractTest, MultiProducerSingleConsumerDeliversAllItems) {
+  constexpr int kProducers = 4;
+  constexpr int kItemsPerProducer = 25;
+  constexpr int kTotal = kProducers * kItemsPerProducer;
+
+  TypeParam queue(4, sfc::FullPolicy::Block);
+
+  std::mutex received_mutex;
+  std::vector<int> received;
+  received.reserve(static_cast<std::size_t>(kTotal));
+
+  std::thread consumer([&queue, &received_mutex, &received] {
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    for (;;) {
+      {
+        std::lock_guard<std::mutex> lock(received_mutex);
+        if (static_cast<int>(received.size()) >= kTotal) {
+          return;
+        }
+      }
+      if (std::chrono::steady_clock::now() >= deadline) {
+        return;
+      }
+
+      sfc::PopResult<int> result = queue.TryPop();
+      if (result.status == sfc::PopStatus::Item) {
+        std::lock_guard<std::mutex> lock(received_mutex);
+        received.push_back(*result.value);
+      } else {
+        std::this_thread::yield();
+      }
+    }
+  });
+
+  std::vector<std::thread> producers;
+  producers.reserve(static_cast<std::size_t>(kProducers));
+  for (int producer_index = 0; producer_index < kProducers; ++producer_index) {
+    producers.emplace_back([&queue, producer_index] {
+      for (int item_index = 0; item_index < kItemsPerProducer; ++item_index) {
+        const int value = producer_index * kItemsPerProducer + item_index;
+        const sfc::PushStatus status = queue.Push(value);
+        EXPECT_EQ(status, sfc::PushStatus::Pushed);
+      }
+    });
+  }
+
+  struct CloseAndJoin {
+    TypeParam* queue;
+    std::vector<std::thread>* producers;
+    std::thread* consumer;
+    ~CloseAndJoin() {
+      queue->Close();
+      for (std::thread& producer : *producers) {
+        if (producer.joinable()) {
+          producer.join();
+        }
+      }
+      if (consumer->joinable()) {
+        consumer->join();
+      }
+    }
+  } guard{&queue, &producers, &consumer};
+
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  for (;;) {
+    {
+      std::lock_guard<std::mutex> lock(received_mutex);
+      if (static_cast<int>(received.size()) >= kTotal) {
+        break;
+      }
+    }
+    if (std::chrono::steady_clock::now() >= deadline) {
+      break;
+    }
+    std::this_thread::yield();
+  }
+
+  std::vector<int> expected(static_cast<std::size_t>(kTotal));
+  std::iota(expected.begin(), expected.end(), 0);
+
+  std::lock_guard<std::mutex> lock(received_mutex);
+  std::sort(received.begin(), received.end());
+  EXPECT_EQ(received, expected);
 }
 
 template <typename Queue>
