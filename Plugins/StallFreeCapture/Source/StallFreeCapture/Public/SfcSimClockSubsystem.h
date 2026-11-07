@@ -18,11 +18,11 @@ class STALLFREECAPTURE_API USfcSimClockSubsystem : public UTickableWorldSubsyste
 	GENERATED_BODY()
 
 public:
-	static constexpr uint64 kSimPeriodMicroseconds = 1'000'000;
+	static constexpr uint64 kSimPeriodMicroseconds = 1000000;
 	static constexpr uint64 kSimTicksPerSecond = 60;
 
 	UPROPERTY(EditAnywhere, Category = "SFC|Sim", meta = (ClampMin = "0"))
-	uint32 CaptureEveryNTicks = 6;
+	int32 CaptureEveryNTicks = 6;
 
 	FSfcOnCaptureTick OnCaptureTick;
 

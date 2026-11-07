@@ -29,16 +29,17 @@ void USfcSimClockSubsystem::ResetSimulationClock()
 void USfcSimClockSubsystem::ConfigureCaptureTrigger()
 {
 	bool bClamped = false;
-	const uint32 SafeEveryN = sfc::SanitizeCaptureEveryNTicks(CaptureEveryNTicks, bClamped);
+	const uint32 Requested = static_cast<uint32>(FMath::Max(0, CaptureEveryNTicks));
+	const uint32 SafeEveryN = sfc::SanitizeCaptureEveryNTicks(Requested, bClamped);
 	if (bClamped)
 	{
 		UE_LOG(
 			LogStallFreeCapture,
 			Warning,
 			TEXT("CaptureEveryNTicks was 0; clamping to 1 (no zero-interval capture)."));
-		CaptureEveryNTicks = SafeEveryN;
+		CaptureEveryNTicks = static_cast<int32>(SafeEveryN);
 	}
-	CaptureTrigger.Reset(CaptureEveryNTicks);
+	CaptureTrigger.Reset(SafeEveryN);
 }
 
 void USfcSimClockSubsystem::RegisterSpawner(ASeededPropSpawner* Spawner)
@@ -117,7 +118,7 @@ void USfcSimClockSubsystem::ConsumeSimTicks(uint64 TickCount)
 				}
 				if (LogSeed == 0)
 				{
-					LogSeed = Spawner->Seed;
+					LogSeed = static_cast<uint64>(FMath::Max<int64>(Spawner->Seed, 0));
 				}
 				Tick600Hash ^= Spawner->HashState();
 			}

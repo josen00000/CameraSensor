@@ -17,7 +17,7 @@ public:
 	ASeededPropSpawner();
 
 	UPROPERTY(EditAnywhere, Category = "SFC|Spawn")
-	uint64 Seed = 7;
+	int64 Seed = 7;
 
 	UPROPERTY(EditAnywhere, Category = "SFC|Spawn", meta = (ClampMin = "0"))
 	int32 PropCount = 200;
@@ -29,7 +29,7 @@ public:
 	TArray<FSfcPropState> PropStates;
 
 	UPROPERTY(VisibleAnywhere, Category = "SFC|Spawn")
-	uint64 InitialStateHash = 0;
+	int64 InitialStateHash = 0;
 
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;

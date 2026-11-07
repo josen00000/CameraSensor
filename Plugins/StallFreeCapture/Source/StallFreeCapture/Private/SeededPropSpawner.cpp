@@ -33,16 +33,18 @@ void ASeededPropSpawner::BeginPlay()
 		PropCount = SafeCount;
 	}
 
-	FSfcPropSpawn::BuildStates(Seed, PropCount, ArenaHalfExtents, PropStates);
-	InitialStateHash = FSfcPropSpawn::HashInitialState(PropStates);
+	const uint64 SpawnSeed = static_cast<uint64>(FMath::Max<int64>(Seed, 0));
+	FSfcPropSpawn::BuildStates(SpawnSeed, PropCount, ArenaHalfExtents, PropStates);
+	const uint64 StateHash = FSfcPropSpawn::HashInitialState(PropStates);
+	InitialStateHash = static_cast<int64>(StateHash);
 
 	UE_LOG(
 		LogStallFreeCapture,
 		Log,
 		TEXT("SeededPropSpawner seed=%llu props=%d initial_state_hash=%llu"),
-		Seed,
+		SpawnSeed,
 		PropStates.Num(),
-		InitialStateHash);
+		StateHash);
 
 	InitializeSimulationFromSpawn();
 	SpawnPropsInWorld();
@@ -72,7 +74,10 @@ void ASeededPropSpawner::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void ASeededPropSpawner::InitializeSimulationFromSpawn()
 {
 	ArenaMilli = FSfcPropSim::ArenaToSimMilli(ArenaHalfExtents);
-	FSfcPropSim::BuildSimStatesFromSpawn(Seed, PropStates, SimStates);
+	FSfcPropSim::BuildSimStatesFromSpawn(
+		static_cast<uint64>(FMath::Max<int64>(Seed, 0)),
+		PropStates,
+		SimStates);
 	SimTickIndex = 0;
 
 	for (int32 Index = 0; Index < SimStates.Num(); ++Index)
