@@ -2,9 +2,11 @@
 
 #include "SfcCameraComponent.h"
 
+#include "StallFreeCapture.h"
+
 USfcCameraComponent::USfcCameraComponent()
 {
-	PrimaryComponentTick.bCanEverTick = false;
+	PrimaryComponentTick.bCanEverTick = true;
 	SetMobility(EComponentMobility::Movable);
 
 	SceneCapture = CreateDefaultSubobject<USceneCaptureComponent2D>(TEXT("SceneCapture"));
@@ -37,6 +39,30 @@ void USfcCameraComponent::OnUnregister()
 	}
 
 	Super::OnUnregister();
+}
+
+void USfcCameraComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+	if (!bUpdateRenderTargetEveryFrame)
+	{
+		return;
+	}
+
+	const ESfcCaptureReadiness Readiness = PrepareBoundRenderTarget();
+	if (Readiness == ESfcCaptureReadiness::MissingRenderTarget)
+	{
+		Pixels.Reset();
+		bLastCaptureSucceeded = false;
+		return;
+	}
+	if (Readiness != ESfcCaptureReadiness::Ready)
+	{
+		return;
+	}
+
+	SceneCapture->CaptureScene();
 }
 
 #if WITH_EDITOR
@@ -94,18 +120,31 @@ void USfcCameraComponent::ApplyCaptureSettings()
 	SceneCapture->TextureTarget = RenderTarget;
 }
 
-void USfcCameraComponent::Capture()
+USfcCameraComponent::ESfcCaptureReadiness USfcCameraComponent::PrepareBoundRenderTarget()
 {
-	if (!SceneCapture || !GetWorld() || !HasValidCaptureSettings())
+	if (!SceneCapture || !GetWorld() || !HasValidCaptureSettings() || !SceneCapture->IsRegistered())
 	{
-		Pixels.Reset();
-		bLastCaptureSucceeded = false;
-		return;
+		return ESfcCaptureReadiness::SilentFailure;
 	}
 
-	ApplyCaptureSettings();
+	if (!SceneCapture->TextureTarget)
+	{
+		if (!bLoggedMissingRenderTarget)
+		{
+			bLoggedMissingRenderTarget = true;
+			UE_LOG(LogStallFreeCapture, Error, TEXT("SfcCamera '%s' has no render target bound."), *GetName());
+		}
+		return ESfcCaptureReadiness::MissingRenderTarget;
+	}
 
-	if (!RenderTarget || !SceneCapture->IsRegistered())
+	bLoggedMissingRenderTarget = false;
+	ApplyCaptureSettings();
+	return ESfcCaptureReadiness::Ready;
+}
+
+void USfcCameraComponent::Capture()
+{
+	if (PrepareBoundRenderTarget() != ESfcCaptureReadiness::Ready)
 	{
 		Pixels.Reset();
 		bLastCaptureSucceeded = false;

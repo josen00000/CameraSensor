@@ -10,6 +10,7 @@
 
 /**
  * Scene component that owns one color scene capture and the CPU pixels from its latest read.
+ * Tick refreshes the render target when bUpdateRenderTargetEveryFrame is set. Capture() reads the pixels.
  * Depth and an object mask can be added later as further child captures and buffers.
  */
 UCLASS(ClassGroup = (SFC), meta = (BlueprintSpawnableComponent))
@@ -35,6 +36,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SFC|Camera", meta = (ClampMin = "0.001", ClampMax = "360.0"))
 	float FOV = 90.f;
 
+	/** When set, Tick refreshes the owned render target. The child scene capture stays off its own every-frame flag. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SFC|Camera")
+	bool bUpdateRenderTargetEveryFrame = true;
+
 	/** CPU image from the last capture. C++ only: a 1280x720 buffer is too large for Blueprint or the details panel. */
 	UPROPERTY(Transient)
 	TArray<FColor> Pixels;
@@ -48,12 +53,23 @@ public:
 
 	virtual void OnRegister() override;
 	virtual void OnUnregister() override;
+	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
 
 private:
+	enum class ESfcCaptureReadiness : uint8
+	{
+		Ready,
+		SilentFailure,
+		MissingRenderTarget
+	};
+
 	bool HasValidCaptureSettings() const;
 	void ApplyCaptureSettings();
+	ESfcCaptureReadiness PrepareBoundRenderTarget();
+
+	bool bLoggedMissingRenderTarget = false;
 };

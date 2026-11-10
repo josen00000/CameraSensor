@@ -86,9 +86,11 @@ bool FSfcCameraReadPixelsTest::RunTest(const FString& Parameters)
 	const FIntProperty* ResolutionXProperty = CastField<FIntProperty>(CameraClass->FindPropertyByName(TEXT("ResolutionX")));
 	const FIntProperty* ResolutionYProperty = CastField<FIntProperty>(CameraClass->FindPropertyByName(TEXT("ResolutionY")));
 	const FFloatProperty* FovProperty = CastField<FFloatProperty>(CameraClass->FindPropertyByName(TEXT("FOV")));
+	const FBoolProperty* UpdateEveryFrameProperty = CastField<FBoolProperty>(CameraClass->FindPropertyByName(TEXT("bUpdateRenderTargetEveryFrame")));
 	TestNotNull(TEXT("ResolutionX is int32"), ResolutionXProperty);
 	TestNotNull(TEXT("ResolutionY is int32"), ResolutionYProperty);
 	TestNotNull(TEXT("FOV is float"), FovProperty);
+	TestNotNull(TEXT("bUpdateRenderTargetEveryFrame is bool"), UpdateEveryFrameProperty);
 
 	auto IsBlueprintReadWrite = [](const FProperty* Property)
 	{
@@ -106,6 +108,7 @@ bool FSfcCameraReadPixelsTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("ResolutionX is BlueprintReadWrite"), IsBlueprintReadWrite(ResolutionXProperty));
 	TestTrue(TEXT("ResolutionY is BlueprintReadWrite"), IsBlueprintReadWrite(ResolutionYProperty));
 	TestTrue(TEXT("FOV is BlueprintReadWrite"), IsBlueprintReadWrite(FovProperty));
+	TestTrue(TEXT("bUpdateRenderTargetEveryFrame is BlueprintReadWrite"), IsBlueprintReadWrite(UpdateEveryFrameProperty));
 	const FProperty* PixelsProperty = CameraClass->FindPropertyByName(TEXT("Pixels"));
 	TestNotNull(TEXT("Pixels property exists"), PixelsProperty);
 	TestFalse(TEXT("Pixels is not Blueprint readable"), PixelsProperty && PixelsProperty->HasAnyPropertyFlags(CPF_BlueprintVisible));
@@ -157,7 +160,8 @@ bool FSfcCameraReadPixelsTest::RunTest(const FString& Parameters)
 	USfcCameraComponent* Camera = NewObject<USfcCameraComponent>(Actor, TEXT("Camera"));
 	Actor->SetRootComponent(Camera);
 	Camera->RegisterComponent();
-	TestFalse(TEXT("Camera component does not tick"), Camera->PrimaryComponentTick.bCanEverTick);
+	TestTrue(TEXT("Camera component ticks"), Camera->PrimaryComponentTick.bCanEverTick);
+	TestTrue(TEXT("Render target updates every frame by default"), Camera->bUpdateRenderTargetEveryFrame);
 
 	USfcCameraComponent* IdleCamera = NewObject<USfcCameraComponent>(IdleActor, TEXT("IdleCamera"));
 	IdleActor->SetRootComponent(IdleCamera);
@@ -289,6 +293,32 @@ bool FSfcCameraReadPixelsTest::RunTest(const FString& Parameters)
 	RequireCleared(TEXT("Non-finite FOV"));
 
 	RestoreSmallCapture();
+	Camera->bUpdateRenderTargetEveryFrame = false;
+	Camera->SceneCapture->TextureTarget = nullptr;
+	Camera->TickComponent(1.f / 60.f, LEVELTICK_All, &Camera->PrimaryComponentTick);
+	TestTrue(TEXT("A disabled frame update does not clear the last capture"), Camera->bLastCaptureSucceeded);
+	TestEqual(TEXT("A disabled frame update does not clear stored pixels"), Camera->Pixels.Num(), 64 * 64);
+	TestNull(TEXT("Disabled frame update leaves an unbound render target unbound"), Camera->SceneCapture->TextureTarget.Get());
+
+	Camera->bUpdateRenderTargetEveryFrame = true;
+	AddExpectedError(TEXT("has no render target bound"), EAutomationExpectedErrorFlags::Contains, 2);
+	Camera->TickComponent(1.f / 60.f, LEVELTICK_All, &Camera->PrimaryComponentTick);
+	Camera->TickComponent(1.f / 60.f, LEVELTICK_All, &Camera->PrimaryComponentTick);
+	Camera->Capture();
+	RequireCleared(TEXT("Missing render target"));
+	TestNull(TEXT("Missing render target stays unbound"), Camera->SceneCapture->TextureTarget.Get());
+	TestNotNull(TEXT("Owned render target is kept while unbound"), Camera->RenderTarget.Get());
+
+	Camera->SceneCapture->TextureTarget = Camera->RenderTarget;
+	Camera->Capture();
+	RequirePixels(64, 64, TEXT("Rebinding the render target"));
+
+	Camera->SceneCapture->TextureTarget = nullptr;
+	Camera->Capture();
+	RequireCleared(TEXT("Missing render target logs again after a rebind"));
+	TestNull(TEXT("Second missing render target stays unbound"), Camera->SceneCapture->TextureTarget.Get());
+
+	Camera->SceneCapture->TextureTarget = Camera->RenderTarget;
 	Camera->UnregisterComponent();
 	TestTrue(TEXT("Unregister unregisters the scene capture"), Camera->SceneCapture && !Camera->SceneCapture->IsRegistered());
 	Camera->Capture();
