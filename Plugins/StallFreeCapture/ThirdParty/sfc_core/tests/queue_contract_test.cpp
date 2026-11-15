@@ -1,4 +1,8 @@
 #include "sfc/mutex_queue.h"
+#include "sfc/mpsc_ring.h"
+
+#include "support/hang_guard.h"
+#include "support/thread_runner.h"
 
 #include <atomic>
 #include <chrono>
@@ -7,13 +11,16 @@
 #include <future>
 #include <memory>
 #include <thread>
+#include <utility>
+#include <vector>
 
 #include <gtest/gtest.h>
 
 template <typename Queue>
 class QueueContractTest : public ::testing::Test {};
 
-using QueueTypes = ::testing::Types<sfc::MutexBoundedQueue<int>>;
+using QueueTypes = ::testing::Types<sfc::MutexBoundedQueue<int>,
+                                     sfc::LockFreeMpscRing<int>>;
 TYPED_TEST_SUITE(QueueContractTest, QueueTypes);
 
 TYPED_TEST(QueueContractTest, TryPopOnEmptyReturnsEmpty) {
@@ -127,6 +134,10 @@ TYPED_TEST(QueueContractTest, CapacityReusesSlotsAfterPop) {
 }
 
 TYPED_TEST(QueueContractTest, DropOldestEvictsOldestAndCountsDrops) {
+  if (std::is_same_v<TypeParam, sfc::LockFreeMpscRing<int>>) {
+    GTEST_SKIP() << "DropOldest not implemented for LockFreeMpscRing (see P3-T28)";
+  }
+
   TypeParam queue(4, sfc::FullPolicy::DropOldest);
 
   EXPECT_EQ(queue.Push(1), sfc::PushStatus::Pushed);
@@ -235,7 +246,8 @@ template <typename Queue>
 class MoveOnlyQueueContractTest : public ::testing::Test {};
 
 using MoveOnlyQueueTypes =
-    ::testing::Types<sfc::MutexBoundedQueue<std::unique_ptr<int>>>;
+    ::testing::Types<sfc::MutexBoundedQueue<std::unique_ptr<int>>,
+                     sfc::LockFreeMpscRing<std::unique_ptr<int>>>;
 TYPED_TEST_SUITE(MoveOnlyQueueContractTest, MoveOnlyQueueTypes);
 
 TYPED_TEST(MoveOnlyQueueContractTest, PushMovesPayloadAndPopYieldsIt) {
@@ -250,5 +262,80 @@ TYPED_TEST(MoveOnlyQueueContractTest, PushMovesPayloadAndPopYieldsIt) {
   ASSERT_TRUE(result.value.has_value());
   ASSERT_NE(*result.value, nullptr);
   EXPECT_EQ(**result.value, 42);
+}
+
+TEST(LockFreeMpscRingMultiProducerTest, PreservesPerProducerOrderWithFourProducers) {
+  constexpr size_t kProducerCount = 4;
+  constexpr size_t kItemsPerProducer = 100'000;
+  constexpr size_t kTotalItems = kProducerCount * kItemsPerProducer;
+
+  sfc::LockFreeMpscRing<std::pair<size_t, size_t>> queue(128, sfc::FullPolicy::Block);
+
+  std::atomic<bool> producers_done{false};
+  std::vector<std::vector<size_t>> received_per_producer(kProducerCount);
+
+  sfc::test::RunWithHangGuardOrFail(
+      [&](std::atomic<bool>& stop) {
+        std::vector<std::jthread> producers;
+        producers.reserve(kProducerCount);
+
+        for (size_t producer_id = 0; producer_id < kProducerCount; ++producer_id) {
+          producers.emplace_back([&, producer_id] {
+            for (size_t i = 0; i < kItemsPerProducer && !stop.load(std::memory_order_acquire);
+                 ++i) {
+              sfc::PushStatus status = queue.Push(std::make_pair(producer_id, i));
+              if (status != sfc::PushStatus::Pushed) {
+                ADD_FAILURE() << "producer " << producer_id << " push failed at item " << i
+                             << " with status " << static_cast<int>(status);
+                return;
+              }
+            }
+          });
+        }
+
+        for (auto& vec : received_per_producer) {
+          vec.reserve(kItemsPerProducer);
+        }
+
+        size_t total_received = 0;
+        while (total_received < kTotalItems && !stop.load(std::memory_order_acquire)) {
+          sfc::PopResult<std::pair<size_t, size_t>> result = queue.TryPop();
+          if (result.status == sfc::PopStatus::Item) {
+            if (!result.value.has_value()) {
+              ADD_FAILURE() << "PopStatus::Item but no value";
+              break;
+            }
+            auto [producer_id, sequence] = *result.value;
+            if (producer_id >= kProducerCount) {
+              ADD_FAILURE() << "invalid producer_id: " << producer_id;
+              break;
+            }
+            received_per_producer[producer_id].push_back(sequence);
+            ++total_received;
+          } else if (result.status == sfc::PopStatus::Empty) {
+            std::this_thread::yield();
+          } else {
+            ADD_FAILURE() << "unexpected PopStatus: " << static_cast<int>(result.status);
+            break;
+          }
+        }
+
+        producers.clear();
+        producers_done.store(true, std::memory_order_release);
+
+        ASSERT_EQ(total_received, kTotalItems);
+
+        for (size_t producer_id = 0; producer_id < kProducerCount; ++producer_id) {
+          const auto& sequences = received_per_producer[producer_id];
+          EXPECT_EQ(sequences.size(), kItemsPerProducer)
+              << "producer " << producer_id << " item count mismatch";
+
+          for (size_t i = 0; i < sequences.size(); ++i) {
+            EXPECT_EQ(sequences[i], i)
+                << "producer " << producer_id << " sequence break at position " << i;
+          }
+        }
+      },
+      std::chrono::seconds(30));
 }
 
