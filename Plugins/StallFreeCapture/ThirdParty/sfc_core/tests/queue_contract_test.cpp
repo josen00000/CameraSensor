@@ -270,8 +270,6 @@ TEST(LockFreeMpscRingMultiProducerTest, PreservesPerProducerOrderWithFourProduce
   constexpr size_t kTotalItems = kProducerCount * kItemsPerProducer;
 
   sfc::LockFreeMpscRing<std::pair<size_t, size_t>> queue(128, sfc::FullPolicy::Block);
-
-  std::atomic<bool> producers_done{false};
   std::vector<std::vector<size_t>> received_per_producer(kProducerCount);
 
   sfc::test::RunWithHangGuardOrFail(
@@ -287,6 +285,7 @@ TEST(LockFreeMpscRingMultiProducerTest, PreservesPerProducerOrderWithFourProduce
               if (status != sfc::PushStatus::Pushed) {
                 ADD_FAILURE() << "producer " << producer_id << " push failed at item " << i
                              << " with status " << static_cast<int>(status);
+                queue.Close();
                 return;
               }
             }
@@ -303,11 +302,13 @@ TEST(LockFreeMpscRingMultiProducerTest, PreservesPerProducerOrderWithFourProduce
           if (result.status == sfc::PopStatus::Item) {
             if (!result.value.has_value()) {
               ADD_FAILURE() << "PopStatus::Item but no value";
+              queue.Close();
               break;
             }
             auto [producer_id, sequence] = *result.value;
             if (producer_id >= kProducerCount) {
               ADD_FAILURE() << "invalid producer_id: " << producer_id;
+              queue.Close();
               break;
             }
             received_per_producer[producer_id].push_back(sequence);
@@ -316,12 +317,12 @@ TEST(LockFreeMpscRingMultiProducerTest, PreservesPerProducerOrderWithFourProduce
             std::this_thread::yield();
           } else {
             ADD_FAILURE() << "unexpected PopStatus: " << static_cast<int>(result.status);
+            queue.Close();
             break;
           }
         }
 
         producers.clear();
-        producers_done.store(true, std::memory_order_release);
 
         ASSERT_EQ(total_received, kTotalItems);
 
@@ -337,5 +338,90 @@ TEST(LockFreeMpscRingMultiProducerTest, PreservesPerProducerOrderWithFourProduce
         }
       },
       std::chrono::seconds(30));
+}
+
+TEST(LockFreeMpscRingCloseStressTest, CloseWithConcurrentPushAndDrain) {
+  constexpr size_t kIterations = 50;
+  constexpr size_t kProducerCount = 4;
+  constexpr size_t kItemsPerProducer = 10'000;
+  constexpr size_t kExpectedTotal = kProducerCount * kItemsPerProducer;
+
+  for (size_t iter = 0; iter < kIterations; ++iter) {
+    sfc::LockFreeMpscRing<size_t> queue(64, sfc::FullPolicy::Block);
+    std::atomic<size_t> pushed_count{0};
+    std::atomic<bool> start{false};
+
+    sfc::test::RunWithHangGuardOrFail(
+        [&](std::atomic<bool>& stop) {
+          std::vector<std::jthread> producers;
+          producers.reserve(kProducerCount);
+
+          for (size_t producer_id = 0; producer_id < kProducerCount; ++producer_id) {
+            producers.emplace_back([&, producer_id] {
+              while (!start.load(std::memory_order_acquire) &&
+                     !stop.load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+              }
+              for (size_t i = 0; i < kItemsPerProducer && !stop.load(std::memory_order_acquire);
+                   ++i) {
+                size_t item = producer_id * kItemsPerProducer + i;
+                sfc::PushStatus status = queue.Push(item);
+                if (status == sfc::PushStatus::Pushed) {
+                  pushed_count.fetch_add(1, std::memory_order_relaxed);
+                } else if (status == sfc::PushStatus::Closed) {
+                  return;
+                }
+              }
+            });
+          }
+
+          std::jthread closer([&] {
+            while (!start.load(std::memory_order_acquire) &&
+                   !stop.load(std::memory_order_acquire)) {
+              std::this_thread::yield();
+            }
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
+            queue.Close();
+          });
+
+          start.store(true, std::memory_order_release);
+
+          std::vector<size_t> received;
+          received.reserve(kExpectedTotal);
+
+          while (!stop.load(std::memory_order_acquire)) {
+            sfc::PopResult<size_t> result = queue.TryPop();
+            if (result.status == sfc::PopStatus::Item) {
+              if (!result.value.has_value()) {
+                ADD_FAILURE() << "iter " << iter << ": PopStatus::Item but no value";
+                return;
+              }
+              received.push_back(*result.value);
+            } else if (result.status == sfc::PopStatus::Closed) {
+              break;
+            } else {
+              std::this_thread::yield();
+            }
+          }
+
+          producers.clear();
+          closer.join();
+
+          size_t final_pushed = pushed_count.load(std::memory_order_relaxed);
+          EXPECT_EQ(received.size(), final_pushed)
+              << "iter " << iter << ": pushed " << final_pushed << " but received "
+              << received.size();
+
+          std::sort(received.begin(), received.end());
+          for (size_t i = 1; i < received.size(); ++i) {
+            if (received[i] == received[i - 1]) {
+              ADD_FAILURE() << "iter " << iter << ": duplicate item " << received[i]
+                           << " at positions " << (i - 1) << " and " << i;
+              break;
+            }
+          }
+        },
+        std::chrono::seconds(10));
+  }
 }
 
