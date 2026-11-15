@@ -11,6 +11,11 @@
 #include <type_traits>
 #include <utility>
 
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4324)
+#endif
+
 namespace sfc {
 
 // Lock-free bounded FIFO MPSC (multiple producer, single consumer) ring.
@@ -95,7 +100,7 @@ class LockFreeMpscRing {
         if (policy_ == FullPolicy::Block) {
           if (backoff_count < kMaxSpins) {
             ++backoff_count;
-            for (size_t spin = 0; spin < (1u << (backoff_count / 8)); ++spin) {
+            for (size_t spin = 0; spin < (size_t{1} << (backoff_count / 8)); ++spin) {
               std::atomic_signal_fence(std::memory_order_acquire);
             }
           } else if (backoff_count < kMaxSpins + kMaxYields) {
@@ -131,7 +136,7 @@ class LockFreeMpscRing {
         if (policy_ == FullPolicy::Block) {
           if (backoff_count < kMaxSpins) {
             ++backoff_count;
-            for (size_t spin = 0; spin < (1u << (backoff_count / 8)); ++spin) {
+            for (size_t spin = 0; spin < (size_t{1} << (backoff_count / 8)); ++spin) {
               std::atomic_signal_fence(std::memory_order_acquire);
             }
           } else if (backoff_count < kMaxSpins + kMaxYields) {
@@ -241,3 +246,7 @@ class LockFreeMpscRing {
 };
 
 }  // namespace sfc
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
