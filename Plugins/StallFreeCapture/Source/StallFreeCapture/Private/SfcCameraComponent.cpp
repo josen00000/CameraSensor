@@ -4,6 +4,10 @@
 
 #include "StallFreeCapture.h"
 
+#include "ImageUtils.h"
+#include "Misc/Paths.h"
+#include "ProfilingDebugging/CpuProfilerTrace.h"
+
 USfcCameraComponent::USfcCameraComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
@@ -75,7 +79,9 @@ void USfcCameraComponent::PostEditChangeProperty(FPropertyChangedEvent& Property
 
 bool USfcCameraComponent::HasValidCaptureSettings() const
 {
-	return ResolutionX >= 1 && ResolutionY >= 1 && FMath::IsFinite(FOV) && FOV > 0.f;
+	return ResolutionX >= 1 && ResolutionX <= MaxCaptureResolution
+		&& ResolutionY >= 1 && ResolutionY <= MaxCaptureResolution
+		&& FMath::IsFinite(FOV) && FOV > 0.f;
 }
 
 void USfcCameraComponent::ApplyCaptureSettings()
@@ -104,7 +110,7 @@ void USfcCameraComponent::ApplyCaptureSettings()
 	{
 		if (!RenderTarget)
 		{
-			RenderTarget = NewObject<UTextureRenderTarget2D>(this, TEXT("ColorTarget"));
+			RenderTarget = NewObject<UTextureRenderTarget2D>(this, TEXT("ColorTarget"), RF_Transient);
 		}
 
 		RenderTarget->ClearColor = FLinearColor::Black;
@@ -117,7 +123,13 @@ void USfcCameraComponent::ApplyCaptureSettings()
 		RenderTarget->UpdateResourceImmediate(true);
 	}
 
-	SceneCapture->TextureTarget = RenderTarget;
+	// Leave a target assigned from outside alone. Capture() reads whatever stays bound.
+	// A null target is bound here for OnRegister and property edits. Tick and Capture do not
+	// reach this while the target is missing: PrepareBoundRenderTarget reports that first.
+	if (!SceneCapture->TextureTarget || SceneCapture->TextureTarget == RenderTarget)
+	{
+		SceneCapture->TextureTarget = RenderTarget;
+	}
 }
 
 USfcCameraComponent::ESfcCaptureReadiness USfcCameraComponent::PrepareBoundRenderTarget()
@@ -144,6 +156,8 @@ USfcCameraComponent::ESfcCaptureReadiness USfcCameraComponent::PrepareBoundRende
 
 void USfcCameraComponent::Capture()
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(SfcCameraCapture);
+
 	if (PrepareBoundRenderTarget() != ESfcCaptureReadiness::Ready)
 	{
 		Pixels.Reset();
@@ -153,11 +167,15 @@ void USfcCameraComponent::Capture()
 
 	SceneCapture->CaptureScene();
 
-	FTextureRenderTargetResource* Resource = RenderTarget->GameThread_GetRenderTargetResource();
+	UTextureRenderTarget2D* BoundTarget = SceneCapture->TextureTarget;
+	FTextureRenderTargetResource* Resource = BoundTarget ? BoundTarget->GameThread_GetRenderTargetResource() : nullptr;
 	TArray<FColor> Read;
+	TRACE_CPUPROFILER_EVENT_SCOPE_STR("SfcSyncReadPixels");
 	const bool bRead = Resource != nullptr && Resource->ReadPixels(Read);
-	const int64 ExpectedCount = static_cast<int64>(ResolutionX) * static_cast<int64>(ResolutionY);
-	if (!bRead || ExpectedCount > MAX_int32 || Read.Num() != static_cast<int32>(ExpectedCount))
+	const int32 Width = BoundTarget ? BoundTarget->SizeX : 0;
+	const int32 Height = BoundTarget ? BoundTarget->SizeY : 0;
+	const int64 ExpectedCount = static_cast<int64>(Width) * static_cast<int64>(Height);
+	if (!bRead || Width < 1 || Height < 1 || ExpectedCount > MAX_int32 || Read.Num() != static_cast<int32>(ExpectedCount))
 	{
 		Pixels.Reset();
 		bLastCaptureSucceeded = false;
@@ -166,4 +184,45 @@ void USfcCameraComponent::Capture()
 
 	Pixels = MoveTemp(Read);
 	bLastCaptureSucceeded = true;
+}
+
+bool USfcCameraComponent::CaptureToPng(const FString& Path)
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE(SfcCameraCaptureToPng);
+
+	if (!IsInGameThread() || !FPaths::GetExtension(Path).Equals(TEXT("png"), ESearchCase::IgnoreCase))
+	{
+		return false;
+	}
+
+	Capture();
+	if (!bLastCaptureSucceeded || Pixels.IsEmpty() || !SceneCapture || !SceneCapture->TextureTarget)
+	{
+		return false;
+	}
+
+	const int32 Width = SceneCapture->TextureTarget->SizeX;
+	const int32 Height = SceneCapture->TextureTarget->SizeY;
+	const int64 ExpectedCount = static_cast<int64>(Width) * static_cast<int64>(Height);
+	if (Width < 1 || Height < 1 || ExpectedCount > MAX_int32 || Pixels.Num() != static_cast<int32>(ExpectedCount))
+	{
+		return false;
+	}
+
+	// Copy so the stored read keeps its alpha. File viewers treat a zero alpha as blank.
+	TArray<FColor> OpaquePixels = Pixels;
+	for (FColor& Pixel : OpaquePixels)
+	{
+		Pixel.A = 255;
+	}
+
+	const FString Directory = FPaths::GetPath(Path);
+	if (!Directory.IsEmpty())
+	{
+		IFileManager::Get().MakeDirectory(*Directory, true);
+	}
+
+	// Negative quality is the PNG zlib level. 9 is the slow end of this game-thread stall.
+	const FImageView Image(OpaquePixels.GetData(), Width, Height, EGammaSpace::sRGB);
+	return FImageUtils::SaveImageByExtension(*Path, Image, -9);
 }

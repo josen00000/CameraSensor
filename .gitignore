@@ -81,3 +81,6 @@ build/
 # Test reports (paste summary into PR description only; never commit)
 /test-report.txt
 docs/reports/
+
+# Insights traces are attached to the PR, not committed (P3-T41).
+*.utrace

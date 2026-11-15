@@ -5,10 +5,14 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "Components/StaticMeshComponent.h"
 #include "Engine/Engine.h"
+#include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "ImageUtils.h"
 #include "Misc/App.h"
+#include "Misc/Paths.h"
 #include "UObject/UnrealType.h"
 
 #include <limits>
@@ -83,6 +87,13 @@ bool FSfcCameraReadPixelsTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Capture is BlueprintCallable"), CaptureFunction->HasAnyFunctionFlags(FUNC_BlueprintCallable));
 	}
 
+	UFunction* CaptureToPngFunction = CameraClass->FindFunctionByName(TEXT("CaptureToPng"));
+	TestNotNull(TEXT("CaptureToPng is a UFunction"), CaptureToPngFunction);
+	if (CaptureToPngFunction)
+	{
+		TestTrue(TEXT("CaptureToPng is BlueprintCallable"), CaptureToPngFunction->HasAnyFunctionFlags(FUNC_BlueprintCallable));
+	}
+
 	const FIntProperty* ResolutionXProperty = CastField<FIntProperty>(CameraClass->FindPropertyByName(TEXT("ResolutionX")));
 	const FIntProperty* ResolutionYProperty = CastField<FIntProperty>(CameraClass->FindPropertyByName(TEXT("ResolutionY")));
 	const FFloatProperty* FovProperty = CastField<FFloatProperty>(CameraClass->FindPropertyByName(TEXT("FOV")));
@@ -114,7 +125,12 @@ bool FSfcCameraReadPixelsTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("Pixels is not Blueprint readable"), PixelsProperty && PixelsProperty->HasAnyPropertyFlags(CPF_BlueprintVisible));
 	TestTrue(TEXT("bLastCaptureSucceeded is BlueprintReadOnly"), IsBlueprintReadOnly(CameraClass->FindPropertyByName(TEXT("bLastCaptureSucceeded"))));
 	TestTrue(TEXT("SceneCapture is BlueprintReadOnly"), IsBlueprintReadOnly(CameraClass->FindPropertyByName(TEXT("SceneCapture"))));
-	TestTrue(TEXT("RenderTarget is BlueprintReadOnly"), IsBlueprintReadOnly(CameraClass->FindPropertyByName(TEXT("RenderTarget"))));
+	const FProperty* RenderTargetProperty = CameraClass->FindPropertyByName(TEXT("RenderTarget"));
+	TestTrue(TEXT("RenderTarget is BlueprintReadOnly"), IsBlueprintReadOnly(RenderTargetProperty));
+	TestTrue(TEXT("RenderTarget is transient"), RenderTargetProperty && RenderTargetProperty->HasAnyPropertyFlags(CPF_Transient));
+	TestEqual(TEXT("ResolutionX ClampMax is 8192"), ResolutionXProperty ? ResolutionXProperty->GetMetaData(TEXT("ClampMax")) : FString(), FString(TEXT("8192")));
+	TestEqual(TEXT("ResolutionY ClampMax is 8192"), ResolutionYProperty ? ResolutionYProperty->GetMetaData(TEXT("ClampMax")) : FString(), FString(TEXT("8192")));
+	TestEqual(TEXT("MaxCaptureResolution matches ClampMax"), USfcCameraComponent::MaxCaptureResolution, 8192);
 
 	if (!FApp::CanEverRender())
 	{
@@ -162,6 +178,32 @@ bool FSfcCameraReadPixelsTest::RunTest(const FString& Parameters)
 	Camera->RegisterComponent();
 	TestTrue(TEXT("Camera component ticks"), Camera->PrimaryComponentTick.bCanEverTick);
 	TestTrue(TEXT("Render target updates every frame by default"), Camera->bUpdateRenderTargetEveryFrame);
+
+	UStaticMesh* CubeMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+	UMaterialInterface* EmissiveMaterial = GEngine ? GEngine->EmissiveMeshMaterial : nullptr;
+	TestNotNull(TEXT("Engine cube mesh loads"), CubeMesh);
+	TestNotNull(TEXT("Emissive mesh material exists"), EmissiveMaterial);
+	AActor* PropActor = SpawnHost(TEXT("the emissive cube"));
+	if (!CubeMesh || !EmissiveMaterial || !PropActor)
+	{
+		return false;
+	}
+
+	UStaticMeshComponent* Cube = NewObject<UStaticMeshComponent>(PropActor, TEXT("Cube"));
+	PropActor->SetRootComponent(Cube);
+	Cube->SetStaticMesh(CubeMesh);
+	Cube->SetMaterial(0, EmissiveMaterial);
+	Cube->SetWorldLocation(FVector(250.f, 0.f, 0.f));
+	Cube->SetWorldScale3D(FVector(4.f));
+	Cube->RegisterComponent();
+	Camera->SceneCapture->ShowFlags.SetAtmosphere(false);
+	Camera->SceneCapture->ShowFlags.SetFog(false);
+	Camera->SceneCapture->ShowFlags.SetEyeAdaptation(false);
+	Camera->SceneCapture->PostProcessSettings.bOverride_AutoExposureMethod = true;
+	Camera->SceneCapture->PostProcessSettings.AutoExposureMethod = AEM_Manual;
+	Camera->SceneCapture->PostProcessSettings.bOverride_AutoExposureBias = true;
+	Camera->SceneCapture->PostProcessSettings.AutoExposureBias = 1.f;
+	World->SendAllEndOfFrameUpdates();
 
 	USfcCameraComponent* IdleCamera = NewObject<USfcCameraComponent>(IdleActor, TEXT("IdleCamera"));
 	IdleActor->SetRootComponent(IdleCamera);
@@ -224,6 +266,58 @@ bool FSfcCameraReadPixelsTest::RunTest(const FString& Parameters)
 
 	Camera->Capture();
 	RequirePixels(1280, 720, TEXT("Default capture"));
+
+	auto CountNonBlack = [](const TArray<FColor>& Colors)
+	{
+		int32 Count = 0;
+		for (const FColor& Color : Colors)
+		{
+			if ((Color.R | Color.G | Color.B) != 0)
+			{
+				++Count;
+			}
+		}
+		return Count;
+	};
+	const int32 NonBlackPixels = CountNonBlack(Camera->Pixels);
+	TestTrue(TEXT("Default capture is not a black frame"), NonBlackPixels > 1000);
+
+	const FString PngPath = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("SfcCameraTest"), TEXT("sync-capture.png"));
+	TestFalse(TEXT("CaptureToPng rejects an empty path"), Camera->CaptureToPng(TEXT("")));
+	TestFalse(TEXT("CaptureToPng rejects a non-png path"), Camera->CaptureToPng(FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("SfcCameraTest"), TEXT("sync-capture.jpg"))));
+	TestEqual(TEXT("A rejected PNG path keeps the last pixel count"), Camera->Pixels.Num(), 1280 * 720);
+	const double PngStartSeconds = FPlatformTime::Seconds();
+	TestTrue(TEXT("CaptureToPng writes a file"), Camera->CaptureToPng(PngPath));
+	AddInfo(FString::Printf(TEXT("CaptureToPng 1280x720 took %.2f ms on the game thread"), (FPlatformTime::Seconds() - PngStartSeconds) * 1000.0));
+	TestTrue(TEXT("PNG file exists"), FPaths::FileExists(PngPath));
+
+	FImage DecodedPng;
+	TestTrue(TEXT("PNG loads"), FImageUtils::LoadImage(*PngPath, DecodedPng));
+	TestEqual(TEXT("PNG width is 1280"), DecodedPng.SizeX, 1280);
+	TestEqual(TEXT("PNG height is 720"), DecodedPng.SizeY, 720);
+	TestEqual(TEXT("PNG is BGRA8"), DecodedPng.Format, ERawImageFormat::BGRA8);
+	if (DecodedPng.Format == ERawImageFormat::BGRA8)
+	{
+		const TArrayView64<FColor> DecodedColors = DecodedPng.AsBGRA8();
+		TestEqual(TEXT("PNG pixel count matches Pixels"), static_cast<int32>(DecodedColors.Num()), Camera->Pixels.Num());
+		bool bPixelsMatch = DecodedColors.Num() == Camera->Pixels.Num();
+		int32 DecodedNonBlack = 0;
+		for (int32 PixelIndex = 0; bPixelsMatch && PixelIndex < DecodedColors.Num(); ++PixelIndex)
+		{
+			const FColor& FilePixel = DecodedColors[PixelIndex];
+			const FColor& CapturedPixel = Camera->Pixels[PixelIndex];
+			if ((FilePixel.R | FilePixel.G | FilePixel.B) != 0)
+			{
+				++DecodedNonBlack;
+			}
+			bPixelsMatch = FilePixel.R == CapturedPixel.R
+				&& FilePixel.G == CapturedPixel.G
+				&& FilePixel.B == CapturedPixel.B
+				&& FilePixel.A == 255;
+		}
+		TestTrue(TEXT("PNG RGB matches Pixels and alpha is opaque"), bPixelsMatch);
+		TestTrue(TEXT("PNG is not a black frame"), DecodedNonBlack > 1000);
+	}
 
 	Camera->SceneCapture->bCaptureEveryFrame = true;
 	Camera->SceneCapture->bCaptureOnMovement = true;
@@ -293,6 +387,15 @@ bool FSfcCameraReadPixelsTest::RunTest(const FString& Parameters)
 	RequireCleared(TEXT("Non-finite FOV"));
 
 	RestoreSmallCapture();
+	const int32 TargetWidthBeforeMax = Camera->RenderTarget->SizeX;
+	const int32 TargetHeightBeforeMax = Camera->RenderTarget->SizeY;
+	Camera->ResolutionX = USfcCameraComponent::MaxCaptureResolution + 1;
+	Camera->Capture();
+	RequireCleared(TEXT("ResolutionX above the maximum"));
+	TestEqual(TEXT("Oversized resolution keeps the previous target width"), Camera->RenderTarget->SizeX, TargetWidthBeforeMax);
+	TestEqual(TEXT("Oversized resolution keeps the previous target height"), Camera->RenderTarget->SizeY, TargetHeightBeforeMax);
+
+	RestoreSmallCapture();
 	Camera->bUpdateRenderTargetEveryFrame = false;
 	Camera->SceneCapture->TextureTarget = nullptr;
 	Camera->TickComponent(1.f / 60.f, LEVELTICK_All, &Camera->PrimaryComponentTick);
@@ -312,6 +415,17 @@ bool FSfcCameraReadPixelsTest::RunTest(const FString& Parameters)
 	Camera->SceneCapture->TextureTarget = Camera->RenderTarget;
 	Camera->Capture();
 	RequirePixels(64, 64, TEXT("Rebinding the render target"));
+
+	UTextureRenderTarget2D* ExternalTarget = NewObject<UTextureRenderTarget2D>(GetTransientPackage());
+	ExternalTarget->InitCustomFormat(32, 32, PF_B8G8R8A8, false);
+	ExternalTarget->UpdateResourceImmediate(true);
+	Camera->SceneCapture->TextureTarget = ExternalTarget;
+	Camera->Capture();
+	TestEqual(TEXT("An external render target stays bound"), Camera->SceneCapture->TextureTarget.Get(), ExternalTarget);
+	RequirePixels(32, 32, TEXT("Capture from an external render target"));
+	TestNotEqual(TEXT("The owned render target is not the external one"), Camera->RenderTarget.Get(), ExternalTarget);
+	Camera->TickComponent(1.f / 60.f, LEVELTICK_All, &Camera->PrimaryComponentTick);
+	TestEqual(TEXT("A tick does not replace an external render target"), Camera->SceneCapture->TextureTarget.Get(), ExternalTarget);
 
 	Camera->SceneCapture->TextureTarget = nullptr;
 	Camera->Capture();
