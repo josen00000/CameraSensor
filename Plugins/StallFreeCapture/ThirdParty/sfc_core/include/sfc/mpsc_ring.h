@@ -85,14 +85,16 @@ class LockFreeMpscRing {
     static_assert(std::is_nothrow_constructible_v<T, U&&>,
                   "T must be nothrow constructible from U to avoid stalling on exception");
 
-    // Seq_cst: forms seq_cst pair with closed_.store in Close(); ensures any
-    // Push that increments inflight_ before Close() stores closed_=true will
-    // complete or decrement before TryPop can see closed_=true && inflight_=0.
+    // Seq_cst: participates in total order S with closed_.store in Close() and
+    // inflight_.load / closed_.load in TryPop(); ensures any Push that increments
+    // inflight_ before Close() stores closed_=true will complete or decrement
+    // before TryPop can see closed_=true && inflight_=0.
     inflight_.fetch_add(1, std::memory_order_seq_cst);
 
-    // Seq_cst: forms seq_cst pair with inflight_.fetch_add above and
-    // closed_.store in Close(); ensures Close() happens-before this load
-    // or this increment happens-before Close()'s store, preventing lost items.
+    // Seq_cst: participates in total order S. In S, either this load precedes
+    // Close's closed_.store (then TryPop sees inflight_>=1, or sees the seq_cst
+    // decrement that follows the slot publish), or it follows that store (then
+    // this Push sees closed_=true, decrements inflight_, and returns Closed).
     if (closed_.load(std::memory_order_seq_cst)) {
       // Relaxed: no synchronization needed; just decrement the count.
       inflight_.fetch_sub(1, std::memory_order_relaxed);
@@ -112,15 +114,17 @@ class LockFreeMpscRing {
       }
 
       // Snapshot block_signal_ BEFORE checking fullness to avoid lost wakeup:
-      // if consumer drains after we check fullness but before we snapshot signal,
-      // we wait on the old value and the notify_all from that drain wakes us.
+      // a consumer/Close increment after this snapshot changes the value, so
+      // wait() returns immediately; an increment before this snapshot is ordered
+      // (release fetch_add -> acquire load), so the freed slot or closed flag
+      // is visible to the re-check after wait() returns.
       // Acquire: forms acquire-release pair with block_signal_.fetch_add(release)
       // in TryPop() and Close(); ensures we see the queue state that triggered
       // that signal update (freed slot or closed flag).
       uint32_t signal_snapshot = block_signal_.load(std::memory_order_acquire);
 
-      // Relaxed: only this thread writes enqueue_pos after successful CAS,
-      // so no synchronization needed for the load.
+      // Relaxed: the loaded value is only a guess that will be validated by
+      // the CAS below; all producers update enqueue_pos_ via CAS.
       size_t pos = enqueue_pos_.load(std::memory_order_relaxed);
 
       // Acquire: forms acquire-release pair with dequeue_pos_.store(release)
@@ -138,7 +142,7 @@ class LockFreeMpscRing {
         if (policy_ == FullPolicy::Block) {
           if (backoff_count < kMaxSpins) {
             ++backoff_count;
-            // Exponential backoff: 2^0=1, 2^1=2, 2^2=4, ..., 2^7=128 spins.
+            // Exponential backoff: 2^1=2, 2^2=4, 2^3=8, ..., 2^8=256 spins.
             for (size_t spin = 0; spin < (size_t{1} << backoff_count); ++spin) {
               std::atomic_signal_fence(std::memory_order_acquire);
             }
@@ -177,14 +181,15 @@ class LockFreeMpscRing {
                                                 std::memory_order_relaxed)) {
           ConstructSlot(slot, std::forward<U>(item));
 
-          // Seq_cst: participates in total order with slot.sequence.load,
-          // inflight_.fetch_sub, and inflight_.load in TryPop(); ensures that
-          // if consumer sees inflight_=0, this slot publication is visible.
+          // Seq_cst: participates in total order S with inflight_.fetch_sub below,
+          // inflight_.load and slot.sequence.load in TryPop(); in S, if TryPop's
+          // inflight_.load observes 0, this store precedes it, so TryPop's later
+          // slot.sequence.load sees the published item.
           slot.sequence.store(pos + 1, std::memory_order_seq_cst);
 
-          // Seq_cst: forms seq_cst pair with inflight_.load in TryPop(); with
-          // seq_cst slot.store above, ensures total order where consumer seeing
-          // inflight_=0 implies all slot publications are visible.
+          // Seq_cst: participates in total order S with inflight_.load in TryPop()
+          // and slot.sequence.store above; in S, if TryPop sees inflight_=0, all
+          // slot publications whose decrements preceded that load are visible.
           inflight_.fetch_sub(1, std::memory_order_seq_cst);
           return PushStatus::Pushed;
         }
@@ -198,7 +203,7 @@ class LockFreeMpscRing {
         if (policy_ == FullPolicy::Block) {
           if (backoff_count < kMaxSpins) {
             ++backoff_count;
-            // Exponential backoff: 2^0=1, 2^1=2, 2^2=4, ..., 2^7=128 spins.
+            // Exponential backoff: 2^1=2, 2^2=4, 2^3=8, ..., 2^8=256 spins.
             for (size_t spin = 0; spin < (size_t{1} << backoff_count); ++spin) {
               std::atomic_signal_fence(std::memory_order_acquire);
             }
@@ -227,14 +232,15 @@ class LockFreeMpscRing {
   PopResult<T> TryPop() {
     // Check if we should return Closed BEFORE checking the slot; this ensures
     // we don't miss items that are being published while Close() is called.
-    // Seq_cst: forms seq_cst pair with closed_.store in Close() and
-    // inflight_.fetch_add in Push(); Dekker-style ensures that if we see
-    // closed_=true and a Push sees closed_=false, that Push is counted in
-    // inflight_ (prevents lost items at Close).
+    // Seq_cst: participates in total order S with closed_.store in Close() and
+    // inflight_.fetch_add in Push(); Dekker-style: in S, if this load observes
+    // closed_=true and a Push's closed_.load observes false, that Push's
+    // inflight_.fetch_add precedes this load (prevents lost items at Close).
     bool check_closed = closed_.load(std::memory_order_seq_cst);
 
-    // Seq_cst: participates in total order with inflight_.fetch_sub in Push()
-    // and closed_.store in Close(); ensures proper Dekker synchronization.
+    // Seq_cst: participates in total order S with inflight_.fetch_sub in Push()
+    // and closed_.store in Close(); in S, if this load observes inflight_=0,
+    // all Push calls' slot publications and decrements precede this load.
     uint32_t check_inflight = inflight_.load(std::memory_order_seq_cst);
 
     // Now check the slot.
@@ -242,9 +248,9 @@ class LockFreeMpscRing {
     size_t pos = dequeue_pos_.load(std::memory_order_relaxed);
     Slot& slot = buffer_[pos & mask_];
 
-    // Seq_cst: participates in total order with slot.sequence.store, fence, and
-    // inflight_.fetch_sub in Push(); ensures that if we saw inflight_=0 above,
-    // all slot publications that decremented inflight are visible.
+    // Seq_cst: participates in total order S with slot.sequence.store and
+    // inflight_.fetch_sub in Push(); in S, if we saw inflight_=0 above, all
+    // slot publications whose decrements precede that load are visible here.
     size_t seq = slot.sequence.load(std::memory_order_seq_cst);
     intptr_t diff = static_cast<intptr_t>(seq) - static_cast<intptr_t>(pos + 1);
 
@@ -302,7 +308,7 @@ class LockFreeMpscRing {
   size_t Capacity() const { return logical_capacity_; }
 
   bool IsClosed() const {
-    // Acquire: forms acquire-release pair with closed_.store(release) in Close();
+    // Acquire: forms acquire-release pair with closed_.store(seq_cst) in Close();
     // ensures caller sees Close() and any prior state changes.
     return closed_.load(std::memory_order_acquire);
   }

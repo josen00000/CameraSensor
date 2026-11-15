@@ -31,7 +31,9 @@ enum class PushStatus {
 //
 // Item: value holds the oldest stored item. This still happens after Close
 //       while items remain.
-// Empty: the queue is open and holds nothing.
+// Empty: the queue holds nothing. After Close() is called, TryPop may briefly
+//        return Empty while a concurrent Push is in flight; consumers should
+//        keep polling on Empty and stop only on Closed.
 // Closed: the queue is closed and holds nothing.
 enum class PopStatus {
   Item,

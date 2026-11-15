@@ -350,6 +350,8 @@ TEST(LockFreeMpscRingCloseStressTest, CloseWithConcurrentPushAndDrain) {
     sfc::LockFreeMpscRing<size_t> queue(64, sfc::FullPolicy::Block);
     std::atomic<size_t> pushed_count{0};
     std::atomic<bool> start{false};
+    std::vector<std::vector<size_t>> pushed_per_producer(kProducerCount);
+    std::vector<std::mutex> pushed_mutexes(kProducerCount);
 
     sfc::test::RunWithHangGuardOrFail(
         [&](std::atomic<bool>& stop) {
@@ -368,6 +370,8 @@ TEST(LockFreeMpscRingCloseStressTest, CloseWithConcurrentPushAndDrain) {
                 sfc::PushStatus status = queue.Push(item);
                 if (status == sfc::PushStatus::Pushed) {
                   pushed_count.fetch_add(1, std::memory_order_relaxed);
+                  std::lock_guard lock(pushed_mutexes[producer_id]);
+                  pushed_per_producer[producer_id].push_back(item);
                 } else if (status == sfc::PushStatus::Closed) {
                   return;
                 }
@@ -394,6 +398,7 @@ TEST(LockFreeMpscRingCloseStressTest, CloseWithConcurrentPushAndDrain) {
             if (result.status == sfc::PopStatus::Item) {
               if (!result.value.has_value()) {
                 ADD_FAILURE() << "iter " << iter << ": PopStatus::Item but no value";
+                queue.Close();
                 return;
               }
               received.push_back(*result.value);
@@ -407,16 +412,32 @@ TEST(LockFreeMpscRingCloseStressTest, CloseWithConcurrentPushAndDrain) {
           producers.clear();
           closer.join();
 
+          // Build expected multiset from all pushed items.
+          std::vector<size_t> expected;
+          for (size_t producer_id = 0; producer_id < kProducerCount; ++producer_id) {
+            expected.insert(expected.end(), pushed_per_producer[producer_id].begin(),
+                            pushed_per_producer[producer_id].end());
+          }
+
           size_t final_pushed = pushed_count.load(std::memory_order_relaxed);
           EXPECT_EQ(received.size(), final_pushed)
               << "iter " << iter << ": pushed " << final_pushed << " but received "
               << received.size();
+          EXPECT_EQ(expected.size(), final_pushed)
+              << "iter " << iter << ": expected size " << expected.size()
+              << " != pushed count " << final_pushed;
 
+          // Verify exact multiset match.
           std::sort(received.begin(), received.end());
+          std::sort(expected.begin(), expected.end());
+          EXPECT_EQ(received, expected) << "iter " << iter << ": received != expected";
+
+          // Check for duplicates.
           for (size_t i = 1; i < received.size(); ++i) {
             if (received[i] == received[i - 1]) {
               ADD_FAILURE() << "iter " << iter << ": duplicate item " << received[i]
                            << " at positions " << (i - 1) << " and " << i;
+              queue.Close();
               break;
             }
           }
